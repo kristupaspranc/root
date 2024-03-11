@@ -199,6 +199,7 @@ class BaseGenerator:
 
         # Handle target
         self.target_given = len(self.target_columns) > 0
+        self.weights_given = len(self.weights_column) > 0
         if self.target_given:
             self.target_indices = []
             for target in self.target_columns:
@@ -209,24 +210,27 @@ class BaseGenerator:
                         f"Provided target not in given columns: \ntarget => \
                             {target}\ncolumns => {self.all_columns}"
                     )
+            
 
-        # Handle weights
-        self.weights_given = len(self.weights_column) > 0
-        if self.weights_given and not self.target_given:
-            raise ValueError("Weights can only be used when a target is provided")
-        if self.weights_given:
-            if weights in self.all_columns:
-                self.weights_index = self.all_columns.index(self.weights_column)
+            # Handle weights
+            if self.weights_given:
+                if weights in self.all_columns:
+                    self.weights_index = self.all_columns.index(self.weights_column)
+                    self.train_indices = [c for c in range(len(self.all_columns)) if c not in self.target_indices+[self.weights_index]]
+                else:
+                    raise ValueError(
+                        f"Provided weights not in given columns: \nweights => \
+                            {weights}\ncolumns => {self.all_columns}"
+                    )
             else:
-                raise ValueError(
-                    f"Provided weights not in given columns: \nweights => \
-                        {weights}\ncolumns => {self.all_columns}"
-                )
+                self.train_indices = [c for c in range(len(self.all_columns)) if c not in self.target_indices]
+                
+        elif self.weights_given:
+            raise ValueError("Weights can only be used when a target is provided")
         else:
-            self.weights_index = -1
+            self.train_indices = [c for c in range(len(self.all_columns))]
 
-        self.train_indices = [c for c in range(len(self.all_columns)) if c not in self.target_indices + [self.weights_index]]
-        self.train_columns = [c for c in self.all_columns if c not in [target, weights]]
+        self.train_columns = [c for c in self.all_columns if c not in self.target_columns+[self.weights_column]]
 
         from ROOT import TMVA, EnableThreadSafety
 
@@ -351,7 +355,7 @@ class BaseGenerator:
 
          # Splice target column(s) from the data if target is given
         if self.target_given:
-            train_data = return_data[:, self.target_indices]
+            train_data = return_data[:, self.train_indices]
             target_data = return_data[:, self.target_indices]
 
             #Splice weight column from the data if weight is given
@@ -574,7 +578,7 @@ def CreateNumPyGenerators(
     filters: list[str] = list(),
     max_vec_sizes: dict[str, int] = dict(),
     vec_padding: int = 0,
-    target: str|list[str] = "",
+    target: str|list[str] = list(),
     weights: str = "",
     validation_split: float = 0.0,
     max_chunks: int = 0,
@@ -726,26 +730,27 @@ def CreateTFDatasets(
         base_generator, base_generator.ConvertBatchToTF
     )
 
-    num_columns = len(train_generator.train_columns)
+    num_train_columns = len(train_generator.train_columns)
+    num_target_columns = len(train_generator.target_columns)
 
     # No target and weights given
-    if target == "":
+    if target == list():
         batch_signature = tf.TensorSpec(
-            shape=(batch_size, num_columns), dtype=tf.float32
+            shape=(batch_size, num_train_columns), dtype=tf.float32
         )
 
     # Target given, no weights given
     elif weights == "":
         batch_signature = (
-            tf.TensorSpec(shape=(batch_size, num_columns), dtype=tf.float32),
-            tf.TensorSpec(shape=(batch_size,), dtype=tf.float32),
+            tf.TensorSpec(shape=(batch_size, num_train_columns), dtype=tf.float32),
+            tf.TensorSpec(shape=(batch_size, num_target_columns), dtype=tf.float32),
         )
 
     # Target and weights given
     else:
         batch_signature = (
-            tf.TensorSpec(shape=(batch_size, num_columns), dtype=tf.float32),
-            tf.TensorSpec(shape=(batch_size,), dtype=tf.float32),
+            tf.TensorSpec(shape=(batch_size, num_train_columns), dtype=tf.float32),
+            tf.TensorSpec(shape=(batch_size, num_target_columns), dtype=tf.float32),
             tf.TensorSpec(shape=(batch_size,), dtype=tf.float32),
         )
 
@@ -756,7 +761,7 @@ def CreateTFDatasets(
     # Give access to the columns function of the training set
     setattr(ds_train, "columns", train_generator.columns)
     setattr(ds_train, "train_columns", train_generator.train_columns)
-    setattr(ds_train, "target_column", train_generator.target_column)
+    setattr(ds_train, "target_columns", train_generator.target_columns)
     setattr(ds_train, "weights_column", train_generator.weights_column)
 
     ds_validation = tf.data.Dataset.from_generator(
@@ -766,7 +771,7 @@ def CreateTFDatasets(
     # Give access to the columns function of the validation set
     setattr(ds_validation, "columns", train_generator.columns)
     setattr(ds_validation, "train_columns", train_generator.train_columns)
-    setattr(ds_validation, "target_column", train_generator.target_column)
+    setattr(ds_validation, "target_columns", train_generator.target_columns)
     setattr(ds_validation, "weights_column", train_generator.weights_column)
 
     return ds_train, ds_validation
