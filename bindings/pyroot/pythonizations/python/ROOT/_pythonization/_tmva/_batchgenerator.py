@@ -201,10 +201,11 @@ class BaseGenerator:
         self.target_given = len(self.target_columns) > 0
         self.weights_given = len(self.weights_column) > 0
         if self.target_given:
-            if not all(target in self.all_columns for target in self.target_columns):
-                raise ValueError(
-                    f"One of provided targets not in given columns"
-                )
+            for target in self.all_columns:
+                if target not in self.target_columns:
+                    raise ValueError(
+                        f"Provided target not in given columns: \ntarget => \
+                            {target}\ncolumns => {self.all_columns}")
             
             self.target_indices = [self.all_columns.index(target) for target in self.target_columns]
 
@@ -217,7 +218,6 @@ class BaseGenerator:
             #             f"Provided target not in given columns: \ntarget => \
             #                 {target}\ncolumns => {self.all_columns}"
             #         )
-            
 
             # Handle weights
             if self.weights_given:
