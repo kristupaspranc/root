@@ -150,64 +150,16 @@ public:
    /// \param chunkTensor
    /// \param currentRow
    /// \return A pair of size_t defining the number of events processed and how many passed all filters
-   std::pair<std::size_t, std::size_t>
-   LoadChunk(TMVA::Experimental::RTensor<float> &chunkTensor, const std::size_t currentRow)
+   std::size_t LoadChunk(TMVA::Experimental::RTensor<float> &chunkTensor, const std::size_t currentRow)
    {
       RChunkLoaderFunctor<Args...> func(chunkTensor, fVecSizes, fVecPadding);
 
-      // Load events if filters are given
-      if (fFilters.size() > 0) {
-         return loadFiltered(func, currentRow);
-      }
+      ROOT::Internal::RDF::ChangeEntryRange(f_rdf, currentRow, currentRow + fChunkSize);
+      std::size_t processed_events = f_rdf.Count().GetValue();
 
-      // load events if no filters are given
-      return loadNonFiltered(func, currentRow);
-   }
+      f_rdf.Foreach(func, fCols);
 
-private:
-   /// \brief Add filters to the RDataFrame and load a chunk of data
-   /// \param func
-   /// \param currentRow
-   /// \return A pair of size_t defining the number of events processed and how many passed all filters
-   std::pair<std::size_t, std::size_t> loadFiltered(RChunkLoaderFunctor<Args...> &func, const std::size_t currentRow=0)
-   {
-      // Add the given filters to the RDataFrame
-      auto x_filter = f_rdf.Filter(fFilters, "RBatchGenerator_Filter");
-
-      // add range to the DataFrame
-      auto x_ranged = x_filter.Range(currentRow, currentRow + fChunkSize);
-      auto myReport = x_ranged.Report();
-
-      // load data
-      x_ranged.Foreach(func, fCols);
-
-      // Use the report to gather the number of events processed and passed.
-      // passed_events is used to determine the starting event of the next chunk
-      // processed_events is used to determine if the end of the database is reached.
-      std::size_t processed_events = myReport.begin()->GetAll();
-      std::size_t passed_events = (myReport.end() - 1)->GetPass();
-
-      return std::make_pair(processed_events, passed_events);
-   }
-
-   /// \brief Loop over the events in the dataframe untill either the end of the dataframe
-   /// is reached, or a full chunk is loaded
-   /// \param func
-   /// \param currentRow
-   /// \return A pair of size_t defining the number of events processed and how many passed all filters
-   std::pair<std::size_t, std::size_t> loadNonFiltered(RChunkLoaderFunctor<Args...> &func, const std::size_t currentRow=0)
-   {
-      // add range
-      auto x_ranged = f_rdf.Range(currentRow, currentRow + fChunkSize);
-      auto myCount = x_ranged.Count();
-
-      // load data
-      x_ranged.Foreach(func, fCols);
-
-      // get loading info
-      std::size_t processed_events = myCount.GetValue();
-      std::size_t passed_events = myCount.GetValue();
-      return std::make_pair(processed_events, passed_events);
+      return processed_events;
    }
 };
 

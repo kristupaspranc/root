@@ -178,13 +178,13 @@ public:
          }
 
          // A pair that consists the proccessed, and passed events while loading the chunk
-         std::pair<std::size_t, std::size_t> report = fChunkLoader->LoadChunk(*fChunkTensor, fCurrentRow);
-         fCurrentRow += report.first;
+         std::size_t report = fChunkLoader->LoadChunk(*fChunkTensor, fCurrentRow);
+         fCurrentRow += report;
 
-         CreateBatches(current_chunk, report.second);
+         CreateBatches(current_chunk, report);
 
          // Stop loading if the number of processed events is smaller than the desired chunk size
-         if (report.first < fChunkSize) {
+         if (report < fChunkSize) {
             break;
          }
       }
