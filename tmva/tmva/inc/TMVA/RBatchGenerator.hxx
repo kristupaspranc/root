@@ -1,13 +1,11 @@
 #ifndef TMVA_BATCHGENERATOR
 #define TMVA_BATCHGENERATOR
 
-#include <iostream>
 #include <vector>
 #include <thread>
 #include <memory>
 #include <cmath>
 #include <mutex>
-#include <iostream>
 
 #include "TMVA/RTensor.hxx"
 #include "ROOT/RDF/RDatasetSpec.hxx"
@@ -27,7 +25,6 @@ private:
    TMVA::RandomGenerator<TRandom3> fRng = TMVA::RandomGenerator<TRandom3>(0);
 
    std::vector<std::string> fCols;
-   std::string fFilters;
 
    std::size_t fChunkSize;
    std::size_t fMaxChunks;
@@ -69,7 +66,7 @@ private:
 
 public:
    RBatchGenerator(ROOT::RDF::RNode &rdf, const std::size_t chunkSize,
-                   const std::size_t batchSize, const std::vector<std::string> &cols, const std::string &filters = "",
+                   const std::size_t batchSize, const std::vector<std::string> &cols,
                    const std::vector<std::size_t> &vecSizes = {}, const float vecPadding = 0.0,
                    const float validationSplit = 0.0, const std::size_t maxChunks = 0, const std::size_t numColumns = 0,
                    bool shuffle = true, bool dropRemainder = true)
@@ -77,7 +74,6 @@ public:
         fChunkSize(chunkSize),
         fBatchSize(batchSize),
         fCols(cols),
-        fFilters(filters),
         fVecSizes(vecSizes),
         fVecPadding(vecPadding),
         fValidationSplit(validationSplit),
@@ -93,7 +89,7 @@ public:
       fNumEntries = f_rdf.Count().GetValue();
 
       fChunkLoader = std::make_unique<TMVA::Experimental::Internal::RChunkLoader<Args...>>(
-         f_rdf, fChunkSize, fCols, fFilters, fVecSizes, fVecPadding);
+         f_rdf, fChunkSize, fCols, fVecSizes, fVecPadding);
       fBatchLoader = std::make_unique<TMVA::Experimental::Internal::RBatchLoader>(fBatchSize, fNumColumns, fMaxBatches);
 
       // Create tensor to load the chunk into
@@ -208,8 +204,6 @@ public:
       } else {
          // Create the Validation batches if this is not the first epoch
          createIdxs(processedEvents);
-         std::cout << "Training indices size: " << fTrainingIdxs[currentChunk].size() << "\n";
-         std::cout << "Validation indices size: " << fValidationIdxs[currentChunk].size() << "\n";
          fTrainingRemainderRow = fBatchLoader->CreateTrainingBatches(*fChunkTensor, *fTrainingRemainder, fTrainingRemainderRow, fTrainingIdxs[currentChunk]);
          fValidationRemainderRow = fBatchLoader->CreateValidationBatches(*fChunkTensor, *fValidationRemainder, fValidationRemainderRow, fValidationIdxs[currentChunk]);
       }
@@ -219,8 +213,6 @@ public:
    /// \param processedEvents
    void createIdxs(std::size_t processedEvents)
    {  
-      std::cout << "Processed events: " << processedEvents << "\n";
-      std::cout << "Validation split: " << fValidationSplit << "\n";
       // Create a vector of number 1..processedEvents
       std::vector<std::size_t> row_order = std::vector<std::size_t>(processedEvents);
       std::iota(row_order.begin(), row_order.end(), 0);
@@ -231,8 +223,6 @@ public:
 
       // calculate the number of events used for validation
       std::size_t num_validation = ceil(processedEvents * fValidationSplit);
-
-      std::cout << "Num validation: " << num_validation << "\n";
 
       // Devide the vector into training and validation
       std::vector<std::size_t> valid_idx({row_order.begin(), row_order.begin() + num_validation});

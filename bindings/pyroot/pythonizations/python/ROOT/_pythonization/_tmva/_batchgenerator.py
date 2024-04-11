@@ -21,7 +21,7 @@ class BaseGenerator:
         RDataFrame and columns.
 
         Args:
-            rdataframe (RNode): RDataFrame or RNode object.
+            rdataframe (RNode): RNode object.
             columns (list[str]): Columns that should be loaded.
                                  Defaults to loading all columns
                                  in the given RDataFrame
@@ -110,13 +110,10 @@ class BaseGenerator:
 
     def __init__(
         self,
+        rdataframe: RNode,
         batch_size: int,
         chunk_size: int,
-        tree_name: str = None,
-        file_names: str|list[str] = list(),
-        rdataframe: RNode = None,
         columns: list[str] = list(),
-        filters: list[str] = list(),
         max_vec_sizes: dict[str, int] = dict(),
         vec_padding: int = 0,
         target: str|list[str] = list(),
@@ -129,24 +126,13 @@ class BaseGenerator:
         """Wrapper around the Cpp RBatchGenerator
 
             Args:
-                batch_size (int): Size of the returned chunks.
+            rdataframe (RNode): Name of RNode object.
+            batch_size (int): Size of the returned chunks.
             chunk_size (int):
                 The size of the chunks loaded from the ROOT file. Higher chunk size
                 results in better randomization, but also higher memory usage.
-            tree_name (str, optional):
-                Name of the tree in the ROOT file. Must be given if file_names
-                are given.
-            file_names (str|list[str], optional):
-                Path(s) to the ROOT file(s). Only one of file_names or rdataframe
-                arguments must be given.
-            rdataframe (RNode, optional):
-            Name of RDataFrame or RNode object. Only one of file_names or
-            rdataframe arguments must be given.
             columns (list[str], optional):
                 Columns to be returned. If not given, all columns are used.
-            filters (list[str], optional):
-                Filters to apply during loading. If not given, no filters
-                are applied.
             max_vec_sizes (dict[std, int], optional):
                 Size of each column that consists of vectors.
                 Required when using vector based columns.
@@ -174,6 +160,7 @@ class BaseGenerator:
 
         try:
             import numpy as np
+
         except ImportError:
             raise ImportError(
                 "Failed to import NumPy during init. NumPy is required when \
@@ -192,28 +179,7 @@ class BaseGenerator:
                     given value is {validation_split}"
             )
         
-        if isinstance(file_names, str):
-            file_names = [file_names]
-        
-        if file_names and rdataframe != None:
-            raise ValueError(
-                "Only one of rdataframe and file_names arguments must be given"
-            )
-        
-        if file_names and not tree_name:
-            raise ValueError(
-                "file_names is given while tree_name is not given"
-            )
-        
-        if tree_name and not file_names:
-            raise ValueError(
-                "tree_name is given while file_names are not given"
-            )
-        
         from ROOT import RDataFrame
-
-        if file_names:
-            rdataframe = RDataFrame(tree_name, file_names)
         
         if isinstance(target, str):
             target = [target]
@@ -273,8 +239,6 @@ class BaseGenerator:
         # cling via cppyy) and the I/O thread.
         EnableThreadSafety()
 
-        expanded_filter = " && ".join(["(" + fltr + ")" for fltr in filters])
-
         self.noded_rdf = RDF.AsRNode(rdataframe)
 
         self.generator = TMVA.Experimental.Internal.RBatchGenerator(template)(
@@ -282,7 +246,6 @@ class BaseGenerator:
             chunk_size,
             batch_size,
             self.given_columns,
-            expanded_filter,
             max_vec_sizes_list,
             vec_padding,
             validation_split,
@@ -374,8 +337,6 @@ class BaseGenerator:
         data.reshape((batch_size * num_columns,))
 
         return_data = np.array(data).reshape(batch_size, num_columns)
-
-        print(return_data.shape)
 
         # Splice target column from the data if target is given
         if self.target_given:
@@ -669,13 +630,10 @@ class ValidationRBatchGenerator:
 
 
 def CreateNumPyGenerators(
+    rdataframe: RNode,
     batch_size: int,
     chunk_size: int,
-    tree_name: str = None,
-    file_names: str|list[str] = list(),
-    rdataframe: RNode = None,
     columns: list[str] = list(),
-    filters: list[str] = list(),
     max_vec_sizes: dict[str, int] = dict(),
     vec_padding: int = 0,
     target: str|list[str] = list(),
@@ -686,28 +644,18 @@ def CreateNumPyGenerators(
     drop_remainder = True,
 ) -> Tuple[TrainRBatchGenerator, ValidationRBatchGenerator]:
     """
-    Return two batch generators based on the given ROOT file and tree or RDataFrame
+    Return two batch generators based on the given RNode
     The first generator returns training batches, while the second generator
     returns validation batches
 
     Args:
+        rdataframe (RNode): Name of RNode object.
         batch_size (int): Size of the returned chunks.
         chunk_size (int):
             The size of the chunks loaded from the ROOT file. Higher chunk size
             results in better randomization, but also higher memory usage.
-        tree_name (str, optional):
-            Name of the tree in the ROOT file. Must be given if file_names
-            are given.
-        file_names (str|list[str], optional):
-            Path(s) to the ROOT file(s). Only one of file_names or rdataframe
-            arguments must be given.
-        rdataframe (RNode, optional):
-            Name of RDataFrame or RNode object. Only one of file_names or
-            rdataframe arguments must be given.
         columns (list[str], optional):
             Columns to be returned. If not given, all columns are used.
-        filters (list[str], optional):
-            Filters to apply. If not given, no filters are applied.
         max_vec_sizes (list[int], optional):
             Size of each column that consists of vectors.
             Required when using vector based columns
@@ -737,13 +685,10 @@ def CreateNumPyGenerators(
             generator will return no batches.
     """
     base_generator = BaseGenerator(
+        rdataframe,
         batch_size,
         chunk_size,
-        tree_name,
-        file_names,
-        rdataframe,
         columns,
-        filters,
         max_vec_sizes,
         vec_padding,
         target,
@@ -765,13 +710,10 @@ def CreateNumPyGenerators(
 
 
 def CreateTFGenerators(
+    rdataframe: RNode,
     batch_size: int,
     chunk_size: int,
-    tree_name: str = None,
-    file_names: str|list[str] = list(),
-    rdataframe: RNode = None,
     columns: list[str] = list(),
-    filters: list[str] = list(),
     max_vec_sizes: dict[str, int] = dict(),
     vec_padding: int = 0,
     target: str|list[str] = list(),
@@ -782,28 +724,18 @@ def CreateTFGenerators(
     drop_remainder = True,
 ) -> Tuple[tf.data.Dataset, tf.data.Dataset]:
     """
-    Return two Tensorflow Datasets based on the given ROOT file and tree or RDataFrame
+    Return two batch generators based on the given RNode
     The first generator returns training batches, while the second generator
     returns validation batches
 
     Args:
+        rdataframe (RNode): Name of RNode object.
         batch_size (int): Size of the returned chunks.
         chunk_size (int):
             The size of the chunks loaded from the ROOT file. Higher chunk size
             results in better randomization, but also higher memory usage.
-        tree_name (str, optional):
-            Name of the tree in the ROOT file. Must be given if file_names
-            are given.
-        file_names (str|list[str], optional):
-            Path(s) to the ROOT file(s). Only one of file_names or rdataframe
-            arguments must be given.
-        rdataframe (RNode, optional):
-            Name of RDataFrame or RNode object. Only one of file_names or
-            rdataframe arguments must be given.
         columns (list[str], optional):
             Columns to be returned. If not given, all columns are used.
-        filters (list[str], optional):
-            Filters to apply. If not given, no filters are applied.
         max_vec_sizes (list[int], optional):
             Size of each column that consists of vectors.
             Required when using vector based columns
@@ -833,13 +765,10 @@ def CreateTFGenerators(
             generator will return no batches.
     """
     base_generator = BaseGenerator(
+        rdataframe,
         batch_size,
         chunk_size,
-        tree_name,
-        file_names,
-        rdataframe,
         columns,
-        filters,
         max_vec_sizes,
         vec_padding,
         target,
@@ -861,13 +790,10 @@ def CreateTFGenerators(
 
 
 def CreatePyTorchGenerators(
+    rdataframe,
     batch_size: int,
     chunk_size: int,
-    tree_name: str = None,
-    file_names: str|list[str] = list(),
-    rdataframe: RNode = None,
     columns: list[str] = list(),
-    filters: list[str] = list(),
     max_vec_sizes: dict[str, int] = dict(),
     vec_padding: int = 0,
     target: str|list[str] = list(),
@@ -878,28 +804,18 @@ def CreatePyTorchGenerators(
     drop_remainder = True,
 ) -> Tuple[TrainRBatchGenerator, ValidationRBatchGenerator]:
     """
-    Return two Tensorflow Datasets based on the given ROOT file and tree or RDataFrame
+    Return two batch generators based on the given RNode
     The first generator returns training batches, while the second generator
     returns validation batches
 
     Args:
+        rdataframe (RNode): Name of RNode object.
         batch_size (int): Size of the returned chunks.
         chunk_size (int):
             The size of the chunks loaded from the ROOT file. Higher chunk size
             results in better randomization, but also higher memory usage.
-        tree_name (str, optional):
-            Name of the tree in the ROOT file. Must be given if file_names
-            are given.
-        file_names (str|list[str], optional):
-            Path(s) to the ROOT file(s). Only one of file_names or rdataframe
-            arguments must be given.
-        rdataframe (RNode, optional):
-            Name of RDataFrame or RNode object. Only one of file_names or
-            rdataframe arguments must be given.
         columns (list[str], optional):
             Columns to be returned. If not given, all columns are used.
-        filters (list[str], optional):
-            Filters to apply. If not given, no filters are applied.
         max_vec_sizes (list[int], optional):
             Size of each column that consists of vectors.
             Required when using vector based columns
@@ -929,13 +845,10 @@ def CreatePyTorchGenerators(
             generator will return no batches.
     """
     base_generator = BaseGenerator(
+        rdataframe,
         batch_size,
         chunk_size,
-        tree_name,
-        file_names,
-        rdataframe,
         columns,
-        filters,
         max_vec_sizes,
         vec_padding,
         target,

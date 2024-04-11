@@ -12,6 +12,8 @@ file_name = (
     + "/tmva/RBatchGenerator_filters_vectors_hvector.root"
 )
 
+rdf = ROOT.RDataFrame(tree_name, file_name)
+
 chunk_size = 50  # Defines the size of the chunks
 batch_size = 5  # Defines the size of the returned batches
 
@@ -19,13 +21,13 @@ batch_size = 5  # Defines the size of the returned batches
 filters = ["f1 > 30", "f2 < 70", "f3 == true"]
 max_vec_sizes = {"f4": 3, "f5": 2, "f6": 1}
 
+filtered_rdf = rdf.Filter("&&".join(filters))
+
 ds_train, ds_validation = ROOT.TMVA.Experimental.CreateNumPyGenerators(
+    filtered_rdf,
     batch_size,
     chunk_size,
-    tree_name,
-    file_name,
     validation_split=0.3,
-    filters=filters,
     max_vec_sizes=max_vec_sizes,
     shuffle=True,
 )

@@ -15,23 +15,24 @@ import ROOT
 tree_name = "sig_tree"
 file_name = "http://root.cern/files/Higgs_data.root"
 
+rdf = ROOT.RDataFrame(tree_name, file_name)
+
 batch_size = 128
 chunk_size = 5_000
 
 target = "Type"
 
 # Returns two TF.Dataset for training and validation batches.
-ds_train, ds_valid = ROOT.TMVA.Experimental.CreateTFGenerators(
+gen_train, gen_valid = ROOT.TMVA.Experimental.CreateTFGenerators(
+    rdf,
     batch_size,
     chunk_size,
-    tree_name,
-    file_name,
     validation_split=0.3,
     target=target,
 )
 
 # Get a list of the columns used for training
-input_columns = ds_train.train_columns
+input_columns = gen_train.train_columns
 num_features = len(input_columns)
 
 ##############################################################################
@@ -53,4 +54,13 @@ loss_fn = tf.keras.losses.BinaryCrossentropy()
 model.compile(optimizer="adam", loss=loss_fn, metrics=["accuracy"])
 
 # Train model
-model.fit(ds_train, validation_data=ds_valid, epochs=2)
+model.fit(gen_train, validation_data=gen_valid, epochs = 2)
+
+
+# for x, y in ds_train:
+#     print(x.shape)
+#     print(y.shape)
+
+# for x, y in ds_valid:
+#     print(x.shape)
+#     print(y.shape)

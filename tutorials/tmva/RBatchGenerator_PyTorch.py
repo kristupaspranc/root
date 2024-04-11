@@ -15,6 +15,8 @@ import ROOT
 tree_name = "sig_tree"
 file_name = "http://root.cern/files/Higgs_data.root"
 
+rdf = ROOT.RDataFrame(tree_name, file_name)
+
 batch_size = 128
 chunk_size = 5_000
 
@@ -23,10 +25,9 @@ target = "Type"
 # Returns two generators that return training and validation batches
 # as PyTorch tensors.
 gen_train, gen_validation = ROOT.TMVA.Experimental.CreatePyTorchGenerators(
+    rdf,
     batch_size,
     chunk_size,
-    tree_name,
-    file_name,
     target=target,
     validation_split=0.3,
 )

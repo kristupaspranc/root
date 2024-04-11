@@ -118,7 +118,6 @@ private:
    std::size_t fNumColumns;
 
    std::vector<std::string> fCols;
-   std::string fFilters;
 
    std::vector<std::size_t> fVecSizes;
    std::size_t fVecPadding;
@@ -134,12 +133,11 @@ public:
    /// \param vecSizes
    /// \param vecPadding
    RChunkLoader(ROOT::RDF::RNode &rdf, const std::size_t chunkSize,
-                const std::vector<std::string> &cols, const std::string &filters = "",
+                const std::vector<std::string> &cols,
                 const std::vector<std::size_t> &vecSizes = {}, const float vecPadding = 0.0)
       : f_rdf(rdf),
         fChunkSize(chunkSize),
         fCols(cols),
-        fFilters(filters),
         fVecSizes(vecSizes),
         fVecPadding(vecPadding),
         fNumColumns(cols.size())
@@ -149,12 +147,12 @@ public:
    /// \brief Load a chunk of data using the RChunkLoaderFunctor
    /// \param chunkTensor
    /// \param currentRow
-   /// \return A pair of size_t defining the number of events processed and how many passed all filters
+   /// \return A size_t scalar defining the number of events processed
    std::size_t LoadChunk(TMVA::Experimental::RTensor<float> &chunkTensor, const std::size_t currentRow)
    {
       RChunkLoaderFunctor<Args...> func(chunkTensor, fVecSizes, fVecPadding);
 
-      ROOT::Internal::RDF::ChangeEntryRange(f_rdf, currentRow, currentRow + fChunkSize);
+      ROOT::Internal::RDF::ChangeBeginAndEndEntries(f_rdf, currentRow, currentRow + fChunkSize);
       std::size_t processed_events = f_rdf.Count().GetValue();
 
       f_rdf.Foreach(func, fCols);

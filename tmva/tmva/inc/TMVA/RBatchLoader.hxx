@@ -1,7 +1,6 @@
 #ifndef TMVA_RBatchLoader
 #define TMVA_RBatchLoader
 
-#include <iostream>
 #include <vector>
 #include <memory>
 #include <numeric>
@@ -239,8 +238,6 @@ public:
       else{
          SaveRemainingData(chunkTensor, remainderTensor, remainderTensorRow, eventIndices);
          fBatchCondition.notify_one();
-         std::cout << "Remainder train row: " << remainderTensorRow << "\n";
-         std::cout << "Event val indices: " << eventIndices.size() << "\n";
          return remainderTensorRow + eventIndices.size();
       }
 
@@ -290,8 +287,6 @@ public:
       else{
          SaveRemainingData(chunkTensor, remainderTensor, remainderTensorRow, eventIndices);
          fBatchCondition.notify_one();
-         std::cout << "Remainder train row: " << remainderTensorRow << "\n";
-         std::cout << "Event val indices: " << eventIndices.size() << "\n";
          return remainderTensorRow + eventIndices.size();
       }
 
@@ -321,7 +316,6 @@ public:
                   const TMVA::Experimental::RTensor<float> &remainderValidationTensor,
                   const std::size_t remainderValidationRow){
       {  
-         std::cout << remainderTrainingRow << "\n";
          std::vector<std::size_t> idx = std::vector<std::size_t>(remainderTrainingRow);
          std::iota(idx.begin(), idx.end(), 0);
          
@@ -331,7 +325,6 @@ public:
          fTrainingBatchQueue.push(std::move(batch));
       }
 
-      std::cout << remainderValidationRow << "\n";
       std::vector<std::size_t> idx = std::vector<std::size_t>(remainderValidationRow);
          std::iota(idx.begin(), idx.end(), 0);
 
