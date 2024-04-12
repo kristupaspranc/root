@@ -3,10 +3,13 @@ from __future__ import annotations
 from typing import Any, Callable, Tuple, TYPE_CHECKING
 import atexit
 
+import keras
+
 if TYPE_CHECKING:
     import numpy as np
     import tensorflow as tf
     import torch
+
 
 
 class BaseGenerator:
@@ -519,8 +522,8 @@ class TrainRBatchGenerator:
         return self.base_generator.train_columns
 
     @property
-    def target_column(self) -> str:
-        return self.base_generator.target_column
+    def target_columns(self) -> str:
+        return self.base_generator.target_columns
 
     @property
     def weights_column(self) -> str:
@@ -586,8 +589,8 @@ class ValidationRBatchGenerator:
         return self.base_generator.train_columns
 
     @property
-    def target_column(self) -> str:
-        return self.base_generator.target_column
+    def target_columns(self) -> str:
+        return self.base_generator.target_columns
 
     @property
     def weights_column(self) -> str:
@@ -627,6 +630,32 @@ class ValidationRBatchGenerator:
                 break
 
             yield self.conversion_function(batch)
+
+
+class TFTrainWrap(TrainRBatchGenerator, keras.utils.Sequence):
+    def __init__(self, base_generator: BaseGenerator, conversion_function: Callable):
+        TrainRBatchGenerator.__init__(self, base_generator, conversion_function)
+
+    #TODO: implement length
+    def __len__(self):
+        'Denotes the number of batches per epoch'
+        return int(np.floor(len(self.list_IDs) / self.batch_size))
+    
+    def __getitem__(self):
+        yield from TrainRBatchGenerator
+
+
+class TFValidationWrap(ValidationRBatchGenerator, keras.utils.Sequence):
+    def __init__(self, base_generator: BaseGenerator, conversion_function: Callable):
+        ValidationRBatchGenerator.__init__(self, base_generator, conversion_function)
+    
+    #TODO: implement length
+    def __len__(self):
+        'Denotes the number of batches per epoch'
+        return int(np.floor(len(self.list_IDs) / self.batch_size))
+    
+    def __getitem__(self):
+        yield from ValidationRBatchGenerator
 
 
 def CreateNumPyGenerators(
@@ -779,10 +808,11 @@ def CreateTFGenerators(
         drop_remainder,
     )
 
-    train_generator = TrainRBatchGenerator(
-        base_generator, base_generator.ConvertBatchToTF
-    )
-    validation_generator = ValidationRBatchGenerator(
+    train_generator = TFTrainWrap(
+            base_generator, base_generator.ConvertBatchToTF
+        )
+    
+    validation_generator = TFValidationWrap(
         base_generator, base_generator.ConvertBatchToTF
     )
 

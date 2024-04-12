@@ -26,13 +26,13 @@ from ._rbdt import Compute, pythonize_rbdt
 
 from ._batchgenerator import (
     CreateNumPyGenerators,
-    CreateTFDatasets,
+    CreateTFGenerators,
     CreatePyTorchGenerators,
 )
 
 python_batchgenerator_functions = [
     CreateNumPyGenerators,
-    CreateTFDatasets,
+    CreateTFGenerators,
     CreatePyTorchGenerators,
 ]
 
