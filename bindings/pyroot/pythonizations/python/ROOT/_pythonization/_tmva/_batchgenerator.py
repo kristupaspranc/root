@@ -182,6 +182,12 @@ class BaseGenerator:
                     given value is {validation_split}"
             )
         
+        if str(rdataframe.Describe())[15:21] != "TChain" and\
+            str(rdataframe.Describe())[15:20] != "TTree":
+            raise ValueError(
+                "RNode object must be created out of TTrees or files of TTree"
+            )
+        
         from ROOT import RDataFrame
         
         if isinstance(target, str):
