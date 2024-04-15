@@ -29,14 +29,19 @@ private:
    std::vector<std::string> fCols;
 
    std::size_t fChunkSize;
+   std::size_t fNumChunks;
    std::size_t fMaxChunks;
    std::size_t fBatchSize;
+   std::size_t fNumTrainBatches;
+   std::size_t fNumValidationBatches;
    std::size_t fMaxBatches;
    std::size_t fNumColumns;
    std::size_t fNumEntries;
    std::size_t fCurrentRow = 0;
    std::size_t fTrainingRemainderRow = 0;
    std::size_t fValidationRemainderRow = 0;
+   std::size_t fTrainRemainder;
+   std::size_t fValidationRemainder;
 
    float fValidationSplit;
 
@@ -88,12 +93,17 @@ public:
    {
       // limits the number of batches that can be contained in the batchqueue based on the chunksize
       fMaxBatches = ceil((fChunkSize / fBatchSize) * (1 - fValidationSplit));
-      
-      // ss_rdf.Cache(cols).Snapshot("myTree", "temporary.root");
-
-      // f_rdf(ROOT::RDataFrame("myTree", "temporary.root"));
-
       fNumEntries = f_rdf.Count().GetValue();
+
+      fNumChunks = fNumEntries % fChunkSize != 0? fNumEntries / fChunkSize + 1: fNumEntries / fChunkSize;
+      fValidationRemainder = (fNumEntries / fChunkSize) * ceil(fChunkSize * fValidationSplit)
+         + ceil((fNumEntries % fChunkSize) * fValidationSplit);
+      fTrainRemainder = fNumEntries - fValidationRemainder;
+      fNumTrainBatches = fTrainRemainder / fBatchSize;
+      fNumValidationBatches = fValidationRemainder / fBatchSize;
+      fValidationRemainder %= fBatchSize;
+      fTrainRemainder %= fBatchSize;
+      
 
       fChunkLoader = std::make_unique<TMVA::Experimental::Internal::RChunkLoader<Args...>>(
          f_rdf, fChunkSize, fCols, fVecSizes, fVecPadding);
