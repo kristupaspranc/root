@@ -36,7 +36,7 @@ class RBatchGeneratorMultipleFiles(unittest.TestCase):
         os.remove(file)
     
     def size_of_remainders(self, num_of_entries=10, batch_size=3, chunk_size=5, validation_split=0.3):
-        val_remainder = ((num_of_entries // chunk_size) * math.ceil(chunk_size * validation_split))\
+        val_remainder = (num_of_entries // chunk_size) * math.ceil(chunk_size * validation_split)\
             + math.ceil((num_of_entries % chunk_size) * validation_split)
         train_remainder = num_of_entries - val_remainder
         n_of_train_batches = train_remainder // batch_size

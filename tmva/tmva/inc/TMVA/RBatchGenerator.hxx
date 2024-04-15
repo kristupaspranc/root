@@ -11,7 +11,6 @@
 #include "ROOT/RDF/RDatasetSpec.hxx"
 #include "ROOT/RDF/RLoopManager.hxx"
 #include "ROOT/RDF/RInterface.hxx"
-#include "TMVA/RChunkLoader.hxx"
 #include "TMVA/RBatchLoader.hxx"
 #include "TMVA/Tools.h"
 #include "TRandom3.h"
@@ -26,12 +25,14 @@ class RBatchGenerator {
 private:
    TMVA::RandomGenerator<TRandom3> fRng = TMVA::RandomGenerator<TRandom3>(0);
 
+   ROOT::RDataFrame f_rdf; 
+
    std::vector<std::string> fCols;
 
    std::size_t fChunkSize;
+   std::size_t fBatchSize;
    std::size_t fNumChunks;
    std::size_t fMaxChunks;
-   std::size_t fBatchSize;
    std::size_t fNumTrainBatches;
    std::size_t fNumValidationBatches;
    std::size_t fMaxBatches;
@@ -45,7 +46,6 @@ private:
 
    float fValidationSplit;
 
-   std::unique_ptr<TMVA::Experimental::Internal::RChunkLoader<Args...>> fChunkLoader;
    std::unique_ptr<TMVA::Experimental::Internal::RBatchLoader> fBatchLoader;
 
    std::unique_ptr<std::thread> fLoadingThread;
@@ -53,11 +53,8 @@ private:
    bool fUseWholeFile = true;
 
    std::unique_ptr<TMVA::Experimental::RTensor<float>> fChunkTensor;
-   std::unique_ptr<TMVA::Experimental::RTensor<float>> fTrainingRemainder;
-   std::unique_ptr<TMVA::Experimental::RTensor<float>> fValidationRemainder;
-   
-   // ROOT::RDF::RNode & ss_rdf;
-   ROOT::RDataFrame f_rdf; 
+   std::unique_ptr<TMVA::Experimental::RTensor<float>> fTrainRemainderTensor;
+   std::unique_ptr<TMVA::Experimental::RTensor<float>> fValidationRemainderTensor;   
 
    std::vector<std::vector<std::size_t>> fTrainingIdxs;
    std::vector<std::vector<std::size_t>> fValidationIdxs;
@@ -78,8 +75,7 @@ public:
                    const std::vector<std::size_t> &vecSizes = {}, const float vecPadding = 0.0,
                    const float validationSplit = 0.0, const std::size_t maxChunks = 0, const std::size_t numColumns = 0,
                    bool shuffle = true, bool dropRemainder = true)
-      : f_rdf(ROOT::RDataFrame("myTree", "temporary.root")),
-        fChunkSize(chunkSize),
+      : fChunkSize(chunkSize),
         fBatchSize(batchSize),
         fCols(cols),
         fVecSizes(vecSizes),
@@ -89,13 +85,19 @@ public:
         fNumColumns((numColumns != 0) ? numColumns : cols.size()),
         fShuffle(shuffle),
         fDropRemainder(dropRemainder),
+        f_rdf(ROOT::RDataFrame("myTree", "temporary.root")),
         fUseWholeFile(maxChunks == 0)
    {
       // limits the number of batches that can be contained in the batchqueue based on the chunksize
       fMaxBatches = ceil((fChunkSize / fBatchSize) * (1 - fValidationSplit));
       fNumEntries = f_rdf.Count().GetValue();
-
       fNumChunks = fNumEntries % fChunkSize != 0? fNumEntries / fChunkSize + 1: fNumEntries / fChunkSize;
+
+      if (maxChunks != 0 && fNumChunks > maxChunks){
+         fNumChunks = maxChunks;
+         fNumEntries = maxChunks * fChunkSize;
+      }
+
       fValidationRemainder = (fNumEntries / fChunkSize) * ceil(fChunkSize * fValidationSplit)
          + ceil((fNumEntries % fChunkSize) * fValidationSplit);
       fTrainRemainder = fNumEntries - fValidationRemainder;
@@ -103,19 +105,17 @@ public:
       fNumValidationBatches = fValidationRemainder / fBatchSize;
       fValidationRemainder %= fBatchSize;
       fTrainRemainder %= fBatchSize;
-      
 
-      fChunkLoader = std::make_unique<TMVA::Experimental::Internal::RChunkLoader<Args...>>(
-         f_rdf, fChunkSize, fCols, fVecSizes, fVecPadding);
-      fBatchLoader = std::make_unique<TMVA::Experimental::Internal::RBatchLoader>(fBatchSize, fNumColumns, fMaxBatches);
+      fBatchLoader = std::make_unique<TMVA::Experimental::Internal::RBatchLoader>(
+         f_rdf, fChunkSize, fBatchSize,fCols, fNumColumns, fMaxBatches, fVecSizes, fVecPadding);
 
       // Create tensor to load the chunk into
       fChunkTensor =
          std::make_unique<TMVA::Experimental::RTensor<float>>(std::vector<std::size_t>{fChunkSize, fNumColumns});
       // Create remainders tensors
-      fTrainingRemainder =
+      fTrainRemainderTensor =
          std::make_unique<TMVA::Experimental::RTensor<float>>(std::vector<std::size_t>{fBatchSize - 1, fNumColumns});
-      fValidationRemainder =
+      fTrainRemainderTensor =
          std::make_unique<TMVA::Experimental::RTensor<float>>(std::vector<std::size_t>{fBatchSize - 1, fNumColumns});
    }
 
@@ -180,9 +180,7 @@ public:
 
    void LoadChunks()
    {
-      for (std::size_t current_chunk = 0; ((current_chunk < fMaxChunks) || fUseWholeFile) && fCurrentRow < fNumEntries;
-           current_chunk++) {
-
+      for (std::size_t current_chunk = 0; current_chunk < fNumChunks;current_chunk++){
          // stop the loop when the loading is not active anymore
          {
             std::lock_guard<std::mutex> lock(fIsActiveLock);
@@ -191,19 +189,14 @@ public:
          }
 
          // A pair that consists the proccessed, and passed events while loading the chunk
-         std::size_t report = fChunkLoader->LoadChunk(*fChunkTensor, fCurrentRow);
+         std::size_t report = fBatchLoader->template LoadChunk <Args...>(*fChunkTensor, fCurrentRow);
          fCurrentRow += report;
 
          CreateBatches(current_chunk, report);
-
-         // Stop loading if the number of processed events is smaller than the desired chunk size
-         if (report < fChunkSize) {
-            break;
-         }
       }
 
       if (!fDropRemainder){
-         fBatchLoader->LastBatches(*fTrainingRemainder, fTrainingRemainderRow, *fValidationRemainder, fValidationRemainderRow);
+         fBatchLoader->LastBatches(*fTrainRemainderTensor, fTrainingRemainderRow, *fTrainRemainderTensor, fValidationRemainderRow);
       }
 
       fBatchLoader->DeActivate();
@@ -214,15 +207,14 @@ public:
    /// \param processedEvents
    void CreateBatches(std::size_t currentChunk, std::size_t processedEvents)
    {
-
       // Check if the indices in this chunk where already split in train and validations
       if (fTrainingIdxs.size() > currentChunk) {
-         fTrainingRemainderRow = fBatchLoader->CreateTrainingBatches(*fChunkTensor, *fTrainingRemainder, fTrainingRemainderRow, fTrainingIdxs[currentChunk]);
+         fTrainingRemainderRow = fBatchLoader->CreateTrainingBatches(*fChunkTensor, *fTrainRemainderTensor, fTrainingRemainderRow, fTrainingIdxs[currentChunk]);
       } else {
          // Create the Validation batches if this is not the first epoch
          createIdxs(processedEvents);
-         fTrainingRemainderRow = fBatchLoader->CreateTrainingBatches(*fChunkTensor, *fTrainingRemainder, fTrainingRemainderRow, fTrainingIdxs[currentChunk]);
-         fValidationRemainderRow = fBatchLoader->CreateValidationBatches(*fChunkTensor, *fValidationRemainder, fValidationRemainderRow, fValidationIdxs[currentChunk]);
+         fTrainingRemainderRow = fBatchLoader->CreateTrainingBatches(*fChunkTensor, *fTrainRemainderTensor, fTrainingRemainderRow, fTrainingIdxs[currentChunk]);
+         fValidationRemainderRow = fBatchLoader->CreateValidationBatches(*fChunkTensor, *fTrainRemainderTensor, fValidationRemainderRow, fValidationIdxs[currentChunk]);
       }
    }
 
