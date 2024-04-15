@@ -4,6 +4,8 @@
 #include <iostream>
 #include <vector>
 
+#include "ROOT/RDF/RLoopManager.hxx"
+#include "ROOT/RDF/RInterface.hxx"
 #include "TMVA/RTensor.hxx"
 #include "ROOT/RDataFrame.hxx"
 #include "ROOT/RVec.hxx"
@@ -122,7 +124,7 @@ private:
    std::vector<std::size_t> fVecSizes;
    std::size_t fVecPadding;
 
-   ROOT::RDF::RNode & f_rdf;
+   ROOT::RDataFrame & f_rdf;
 
 public:
    /// \brief Constructor for the RChunkLoader
@@ -132,7 +134,7 @@ public:
    /// \param filters
    /// \param vecSizes
    /// \param vecPadding
-   RChunkLoader(ROOT::RDF::RNode &rdf, const std::size_t chunkSize,
+   RChunkLoader(ROOT::RDataFrame &rdf, const std::size_t chunkSize,
                 const std::vector<std::string> &cols,
                 const std::vector<std::size_t> &vecSizes = {}, const float vecPadding = 0.0)
       : f_rdf(rdf),
@@ -153,11 +155,10 @@ public:
       RChunkLoaderFunctor<Args...> func(chunkTensor, fVecSizes, fVecPadding);
 
       ROOT::Internal::RDF::ChangeBeginAndEndEntries(f_rdf, currentRow, currentRow + fChunkSize);
-      std::size_t processed_events = f_rdf.Count().GetValue();
 
       f_rdf.Foreach(func, fCols);
 
-      return processed_events;
+      return f_rdf.Count().GetValue();
    }
 };
 

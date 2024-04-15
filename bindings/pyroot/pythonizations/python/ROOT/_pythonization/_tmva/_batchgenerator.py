@@ -249,9 +249,10 @@ class BaseGenerator:
         EnableThreadSafety()
 
         self.noded_rdf = RDF.AsRNode(rdataframe)
+        self.noded_rdf.Snapshot("myTree", "temporary.root")
 
         self.generator = TMVA.Experimental.Internal.RBatchGenerator(template)(
-            self.noded_rdf,
+            # self.noded_rdf,
             chunk_size,
             batch_size,
             self.given_columns,

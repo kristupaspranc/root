@@ -9,6 +9,8 @@
 
 #include "TMVA/RTensor.hxx"
 #include "ROOT/RDF/RDatasetSpec.hxx"
+#include "ROOT/RDF/RLoopManager.hxx"
+#include "ROOT/RDF/RInterface.hxx"
 #include "TMVA/RChunkLoader.hxx"
 #include "TMVA/RBatchLoader.hxx"
 #include "TMVA/Tools.h"
@@ -49,7 +51,8 @@ private:
    std::unique_ptr<TMVA::Experimental::RTensor<float>> fTrainingRemainder;
    std::unique_ptr<TMVA::Experimental::RTensor<float>> fValidationRemainder;
    
-   ROOT::RDF::RNode &f_rdf;
+   // ROOT::RDF::RNode & ss_rdf;
+   ROOT::RDataFrame f_rdf; 
 
    std::vector<std::vector<std::size_t>> fTrainingIdxs;
    std::vector<std::vector<std::size_t>> fValidationIdxs;
@@ -65,12 +68,12 @@ private:
    float fVecPadding;
 
 public:
-   RBatchGenerator(ROOT::RDF::RNode &rdf, const std::size_t chunkSize,
+   RBatchGenerator(/*ROOT::RDF::RNode &rdf,*/ const std::size_t chunkSize,
                    const std::size_t batchSize, const std::vector<std::string> &cols,
                    const std::vector<std::size_t> &vecSizes = {}, const float vecPadding = 0.0,
                    const float validationSplit = 0.0, const std::size_t maxChunks = 0, const std::size_t numColumns = 0,
                    bool shuffle = true, bool dropRemainder = true)
-      : f_rdf(rdf),
+      : f_rdf(ROOT::RDataFrame("myTree", "temporary.root")),
         fChunkSize(chunkSize),
         fBatchSize(batchSize),
         fCols(cols),
@@ -85,6 +88,10 @@ public:
    {
       // limits the number of batches that can be contained in the batchqueue based on the chunksize
       fMaxBatches = ceil((fChunkSize / fBatchSize) * (1 - fValidationSplit));
+      
+      // ss_rdf.Cache(cols).Snapshot("myTree", "temporary.root");
+
+      // f_rdf(ROOT::RDataFrame("myTree", "temporary.root"));
 
       fNumEntries = f_rdf.Count().GetValue();
 
