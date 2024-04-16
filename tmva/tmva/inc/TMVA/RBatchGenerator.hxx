@@ -39,25 +39,25 @@ private:
    std::size_t fNumColumns;
    std::size_t fNumEntries;
    std::size_t fCurrentRow = 0;
-   std::size_t fTrainingRemainderRow = 0;
-   std::size_t fValidationRemainderRow = 0;
+   std::size_t fTrainRemainderRow = 0;
+   std::size_t fValRemainderRow = 0;
    std::size_t fTrainRemainder;
    std::size_t fValidationRemainder;
+   std::size_t fNumValidation;
 
    float fValidationSplit;
 
-   std::unique_ptr<TMVA::Experimental::Internal::RBatchLoader> fBatchLoader;
+   std::unique_ptr<TMVA::Experimental::Internal::RBatchLoader<Args...>> fBatchLoader;
 
    std::unique_ptr<std::thread> fLoadingThread;
 
    bool fUseWholeFile = true;
 
-   std::unique_ptr<TMVA::Experimental::RTensor<float>> fChunkTensor;
    std::unique_ptr<TMVA::Experimental::RTensor<float>> fTrainRemainderTensor;
-   std::unique_ptr<TMVA::Experimental::RTensor<float>> fValidationRemainderTensor;   
-
+   std::unique_ptr<TMVA::Experimental::RTensor<float>> fValRemainderTensor;   
+   
    std::vector<std::vector<std::size_t>> fTrainingIdxs;
-   std::vector<std::vector<std::size_t>> fValidationIdxs;
+   std::vector<std::vector<std::size_t>> fValIndices;
 
    // filled batch elements
    std::mutex fIsActiveLock;
@@ -91,9 +91,9 @@ public:
       // limits the number of batches that can be contained in the batchqueue based on the chunksize
       fMaxBatches = ceil((fChunkSize / fBatchSize) * (1 - fValidationSplit));
       fNumEntries = f_rdf.Count().GetValue();
-      fNumChunks = fNumEntries % fChunkSize != 0? fNumEntries / fChunkSize + 1: fNumEntries / fChunkSize;
+      fNumChunks = fNumEntries / fChunkSize;
 
-      if (maxChunks != 0 && fNumChunks > maxChunks){
+      if (maxChunks != 0 && fNumChunks + 1 > maxChunks){
          fNumChunks = maxChunks;
          fNumEntries = maxChunks * fChunkSize;
       }
@@ -106,17 +106,17 @@ public:
       fValidationRemainder %= fBatchSize;
       fTrainRemainder %= fBatchSize;
 
-      fBatchLoader = std::make_unique<TMVA::Experimental::Internal::RBatchLoader>(
+      // Multiplication and division to avoid floating number error
+      fNumValidation = ceil(fChunkSize * fValidationSplit * 100000) / 100000;
+
+      fBatchLoader = std::make_unique<TMVA::Experimental::Internal::RBatchLoader<Args...>>(
          f_rdf, fChunkSize, fBatchSize,fCols, fNumColumns, fMaxBatches, fVecSizes, fVecPadding);
 
-      // Create tensor to load the chunk into
-      fChunkTensor =
-         std::make_unique<TMVA::Experimental::RTensor<float>>(std::vector<std::size_t>{fChunkSize, fNumColumns});
       // Create remainders tensors
       fTrainRemainderTensor =
-         std::make_unique<TMVA::Experimental::RTensor<float>>(std::vector<std::size_t>{fBatchSize - 1, fNumColumns});
-      fTrainRemainderTensor =
-         std::make_unique<TMVA::Experimental::RTensor<float>>(std::vector<std::size_t>{fBatchSize - 1, fNumColumns});
+         std::make_unique<TMVA::Experimental::RTensor<float>>(std::vector<std::size_t>{fBatchSize, fNumColumns});
+      fValRemainderTensor =
+         std::make_unique<TMVA::Experimental::RTensor<float>>(std::vector<std::size_t>{fBatchSize, fNumColumns});
    }
 
    ~RBatchGenerator() { DeActivate(); }
@@ -180,7 +180,7 @@ public:
 
    void LoadChunks()
    {
-      for (std::size_t current_chunk = 0; current_chunk < fNumChunks;current_chunk++){
+      for (std::size_t current_chunk = 0; current_chunk < fNumChunks; current_chunk++){
          // stop the loop when the loading is not active anymore
          {
             std::lock_guard<std::mutex> lock(fIsActiveLock);
@@ -188,39 +188,68 @@ public:
                return;
          }
 
-         // A pair that consists the proccessed, and passed events while loading the chunk
-         std::size_t report = fBatchLoader->template LoadChunk <Args...>(*fChunkTensor, fCurrentRow);
-         fCurrentRow += report;
+         fCurrentRow += fChunkSize;
+         createIdxs();
+         CreateTrainingBatches(current_chunk);
+         CreateValidationBatches(current_chunk);
+      }
 
-         CreateBatches(current_chunk, report);
+      // Create last chunk which has less than fChunkSize entries
+      if (std::size_t leftEntries = fNumEntries % fChunkSize; leftEntries != 0){
+         {
+            std::lock_guard<std::mutex> lock(fIsActiveLock);
+            if (!fIsActive)
+               return;
+         }
+         createIdxs(leftEntries);
+         CreateTrainingBatches(fNumChunks);
+         CreateValidationBatches(fNumChunks);
       }
 
       if (!fDropRemainder){
-         fBatchLoader->LastBatches(*fTrainRemainderTensor, fTrainingRemainderRow, *fTrainRemainderTensor, fValidationRemainderRow);
+         fBatchLoader->LastBatches(*fTrainRemainderTensor, fTrainRemainderRow, *fValRemainderTensor, fValRemainderRow);
       }
 
       fBatchLoader->DeActivate();
    }
 
-   /// \brief Create batches for the current_chunk.
-   /// \param currentChunk
-   /// \param processedEvents
-   void CreateBatches(std::size_t currentChunk, std::size_t processedEvents)
-   {
-      // Check if the indices in this chunk where already split in train and validations
-      if (fTrainingIdxs.size() > currentChunk) {
-         fTrainingRemainderRow = fBatchLoader->CreateTrainingBatches(*fChunkTensor, *fTrainRemainderTensor, fTrainingRemainderRow, fTrainingIdxs[currentChunk]);
-      } else {
-         // Create the Validation batches if this is not the first epoch
-         createIdxs(processedEvents);
-         fTrainingRemainderRow = fBatchLoader->CreateTrainingBatches(*fChunkTensor, *fTrainRemainderTensor, fTrainingRemainderRow, fTrainingIdxs[currentChunk]);
-         fValidationRemainderRow = fBatchLoader->CreateValidationBatches(*fChunkTensor, *fTrainRemainderTensor, fValidationRemainderRow, fValidationIdxs[currentChunk]);
-      }
+   void CreateTrainingBatches(std::size_t currentChunk){
+      // if (fTrainingIdxs.size() > currentChunk) {
+      //    fTrainRemainderRow = fBatchLoader->CreateTrainingBatches(*fTrainRemainderTensor, fTrainRemainderRow, fTrainingIdxs[currentChunk]);
+      // } else {
+      //    // Create the Validation batches if this is not the first epoch
+      //    createIdxs();
+      //    fTrainRemainderRow = fBatchLoader->CreateTrainingBatches(*fTrainRemainderTensor, fTrainRemainderRow, fTrainingIdxs[currentChunk]);
+      // }
+      fTrainRemainderRow = fBatchLoader->CreateTrainingBatches(*fTrainRemainderTensor, fTrainRemainderRow, fTrainingIdxs[currentChunk]);
    }
 
-   /// \brief plit the events of the current chunk into validation and training events
-   /// \param processedEvents
-   void createIdxs(std::size_t processedEvents)
+   void CreateValidationBatches(std::size_t currentChunk){
+      fValRemainderRow = fBatchLoader->CreateValidationBatches(*fValRemainderTensor, fValRemainderRow, fValIndices[currentChunk]);
+   }
+
+   /// \brief split fChunkSize number of events of the current chunk into validation and training events
+   void createIdxs()
+   {  
+      // Create a vector of number 1..processedEvents
+      std::vector<std::size_t> row_order = std::vector<std::size_t>(fChunkSize);
+      std::iota(row_order.begin(), row_order.end(), 0);
+
+      if (fShuffle) {
+         std::shuffle(row_order.begin(), row_order.end(), fRng);
+      }
+
+      // Devide the vector into training and validation
+      std::vector<std::size_t> valid_idx({row_order.begin(), row_order.begin() + fNumValidation});
+      std::vector<std::size_t> train_idx({row_order.begin() + fNumValidation, row_order.end()});
+
+      fTrainingIdxs.push_back(train_idx);
+      fValIndices.push_back(valid_idx);
+   }
+
+      /// @brief split custom number of events of the current chunk into validation and training events
+      /// @param processedEvents 
+      void createIdxs(std::size_t processedEvents)
    {  
       // Create a vector of number 1..processedEvents
       std::vector<std::size_t> row_order = std::vector<std::size_t>(processedEvents);
@@ -231,14 +260,14 @@ public:
       }
 
       // calculate the number of events used for validation
-      std::size_t num_validation = ceil(processedEvents * fValidationSplit);
+      std::size_t num_validation = ceil(processedEvents * fValidationSplit * 10000) / 10000;
 
       // Devide the vector into training and validation
       std::vector<std::size_t> valid_idx({row_order.begin(), row_order.begin() + num_validation});
       std::vector<std::size_t> train_idx({row_order.begin() + num_validation, row_order.end()});
 
       fTrainingIdxs.push_back(train_idx);
-      fValidationIdxs.push_back(valid_idx);
+      fValIndices.push_back(valid_idx);
    }
 
    void StartValidation() { fBatchLoader->StartValidation(); }
