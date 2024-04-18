@@ -235,6 +235,7 @@ public:
          std::lock_guard<std::mutex> lock(fTrainBatchLock);
          fIsActive = true;
       }
+      fCurrentRow = 0;
       fTrainBatchCondition.notify_all();
    }
 
@@ -269,14 +270,14 @@ public:
    }
 
    std::unique_ptr<TMVA::Experimental::RTensor<float>>
-   CreateBatch(TMVA::Experimental::RTensor<float> &remainderTrainingTensor,
+   CreateBatch(TMVA::Experimental::RTensor<float> &remainderTensor,
                std::vector<std::size_t> & eventIndices, const size_t batchSize)
    {
       auto batch =
          std::make_unique<TMVA::Experimental::RTensor<float>>(std::vector<std::size_t>({batchSize, fNumColumns}));
 
       for (std::size_t i = 0; i < eventIndices.size(); i++) {
-         std::copy(remainderTrainingTensor.GetData() + (eventIndices[i] * fNumColumns), remainderTrainingTensor.GetData() + ((eventIndices[i] + 1) * fNumColumns),
+         std::copy(remainderTensor.GetData() + (eventIndices[i] * fNumColumns), remainderTensor.GetData() + ((eventIndices[i] + 1) * fNumColumns),
                    batch->GetData() + i * fNumColumns);
       }
 
@@ -308,9 +309,6 @@ public:
          offSet += fNumColumns;
       }
 
-      // auto batch =
-      //    std::make_unique<TMVA::Experimental::RTensor<float>>(remainderTensor);
-
       return batch;
    }
 
@@ -332,7 +330,7 @@ public:
    /// Batches are added to the training queue of batches
    /// \param eventIndices
    std::size_t CreateTrainingBatches(TMVA::Experimental::RTensor<float> &remainderTensor, std::size_t remainderTensorRow,
-                              std::vector<std::size_t> eventIndices)
+                              std::vector<std::size_t> & eventIndices)
    {  
       // Wait until less than a full chunk of batches are in the queue before loading splitting the next chunk into
       // batches
@@ -387,7 +385,7 @@ public:
    /// Batches are added to the vector of validation batches
    /// \param eventIndices
     std::size_t CreateValidationBatches(TMVA::Experimental::RTensor<float> &remainderTensor, std::size_t remainderTensorRow,
-                              std::vector<std::size_t> eventIndices)
+                              std::vector<std::size_t> & eventIndices)
    {
       std::vector<std::unique_ptr<TMVA::Experimental::RTensor<float>>> batches;
 
