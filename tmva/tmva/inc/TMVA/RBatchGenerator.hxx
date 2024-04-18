@@ -41,6 +41,7 @@ private:
    std::size_t fTrainRemainderRow = 0;
    std::size_t fValRemainderRow = 0;
    std::size_t fNumValidation;
+   std::size_t fUnfilledChunk;
 
    float fValidationSplit;
 
@@ -91,13 +92,7 @@ public:
          fNumEntries = maxChunks * fChunkSize;
       }
 
-      // fValidationRemainder = (fNumEntries / fChunkSize) * ceil(fChunkSize * fValidationSplit)
-      //    + ceil((fNumEntries % fChunkSize) * fValidationSplit);
-      // fTrainRemainder = fNumEntries - fValidationRemainder;
-      // fNumTrainBatches = fTrainRemainder / fBatchSize;
-      // fNumValidationBatches = fValidationRemainder / fBatchSize;
-      // fValidationRemainder %= fBatchSize;
-      // fTrainRemainder %= fBatchSize;
+      fUnfilledChunk = fNumEntries % fChunkSize;
 
       // Multiplication and division to avoid floating number error
       fNumValidation = ceil(fChunkSize * fValidationSplit * 1000000) / 1000000;
@@ -115,9 +110,9 @@ public:
 
       // Create remainders tensors
       fTrainRemainderTensor =
-         std::make_unique<TMVA::Experimental::RTensor<float>>(std::vector<std::size_t>{fBatchSize, fNumColumns});
+         std::make_unique<TMVA::Experimental::RTensor<float>>(std::vector<std::size_t>{fBatchSize - 1, fNumColumns});
       fValRemainderTensor =
-         std::make_unique<TMVA::Experimental::RTensor<float>>(std::vector<std::size_t>{fBatchSize, fNumColumns});
+         std::make_unique<TMVA::Experimental::RTensor<float>>(std::vector<std::size_t>{fBatchSize - 1, fNumColumns});
    }
 
    ~RBatchGenerator() { DeActivate(); }
@@ -179,6 +174,22 @@ public:
 
    bool HasValidationData() { return fBatchLoader->HasValidationData(); }
 
+   std::size_t NumberOfTrainingBatches(){
+      if (fDropRemainder || !fUnfilledChunk){
+         return ((fNumEntries / fChunkSize) * (fChunkSize - fNumValidation) + floor((fNumEntries % fChunkSize) * (1 - fValidationSplit) * 1000000)/1000000) / fBatchSize;
+      }
+
+      return ((fNumEntries / fChunkSize) * (fChunkSize - fNumValidation) + floor((fNumEntries % fChunkSize) * (1 - fValidationSplit) * 1000000)/1000000) / fBatchSize;
+   }
+
+   std::size_t NumberOfValidationBatches(){
+      if (fUnfilledChunk == ceil(fUnfilledChunk * fValidationSplit * 1000000) / 1000000 && (fDropRemainder || !fUnfilledChunk)){
+         return ((fNumEntries / fChunkSize) * fNumValidation + ceil((fNumEntries % fChunkSize) * fValidationSplit * 1000000)/1000000) / fBatchSize;
+      }
+      
+      return ((fNumEntries / fChunkSize) * fNumValidation + ceil((fNumEntries % fChunkSize) * fValidationSplit * 1000000)/1000000) / fBatchSize + 1;
+   }
+
    void LoadChunks()
    {
       for (std::size_t current_chunk = 0; current_chunk < fNumChunks; current_chunk++){
@@ -195,14 +206,14 @@ public:
       }
 
       // Create last chunk which has less than fChunkSize entries
-      if (std::size_t leftEntries = fNumEntries % fChunkSize; leftEntries != 0){
+      if (fUnfilledChunk){
          {
             std::lock_guard<std::mutex> lock(fIsActiveLock);
             if (!fIsActive)
                return;
          }
 
-         createIndices(leftEntries);
+         createIndices(fUnfilledChunk);
          fTrainRemainderRow = fBatchLoader->CreateTrainingBatches(*fTrainRemainderTensor, fTrainRemainderRow, fTrainIndices);
          fValRemainderRow = fBatchLoader->CreateValidationBatches(*fValRemainderTensor, fValRemainderRow, fValIndices);
       }

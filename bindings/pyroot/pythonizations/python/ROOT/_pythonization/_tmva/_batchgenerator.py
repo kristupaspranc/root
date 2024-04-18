@@ -536,6 +536,10 @@ class TrainRBatchGenerator:
     def weights_column(self) -> str:
         return self.base_generator.weights_column
 
+    @property
+    def number_of_batches(self) -> int:
+        return self.base_generator.generator.NumberOfTrainingBatches()
+
     def __iter__(self):
         self._callable = self.__call__()
 
@@ -603,6 +607,10 @@ class ValidationRBatchGenerator:
     def weights_column(self) -> str:
         return self.base_generator.weights_column
 
+    @property
+    def number_of_batches(self) -> int:
+        return self.base_generator.generator.NumberOfValidationBatches()
+
     def __iter__(self):
         self._callable = self.__call__()
 
@@ -646,7 +654,7 @@ class TFTrainWrap(TrainRBatchGenerator, keras.utils.Sequence):
     #TODO: implement length
     def __len__(self):
         'Denotes the number of batches per epoch'
-        return int(np.floor(len(self.list_IDs) / self.batch_size))
+        return int(TrainRBatchGenerator.number_of_batches)
     
     def __getitem__(self):
         yield from TrainRBatchGenerator
@@ -659,7 +667,7 @@ class TFValidationWrap(ValidationRBatchGenerator, keras.utils.Sequence):
     #TODO: implement length
     def __len__(self):
         'Denotes the number of batches per epoch'
-        return int(np.floor(len(self.list_IDs) / self.batch_size))
+        return int(ValidationRBatchGenerator.number_of_batches)
     
     def __getitem__(self):
         yield from ValidationRBatchGenerator
