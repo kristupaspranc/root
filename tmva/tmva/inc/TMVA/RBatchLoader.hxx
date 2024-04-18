@@ -59,9 +59,8 @@ private:
    /// \param ...rest
    template <typename First_T, typename... Rest_T>
    void AssignToTensor(First_T first, Rest_T... rest)
-   {
+   {  
       fChunkTensor.GetData()[fOffset++] = first;
-
       AssignToTensor(std::forward<Rest_T>(rest)...);
    }
 
@@ -114,7 +113,7 @@ public:
    /// \param first
    /// \param ...rest
    void operator()(First first, Rest... rest)
-   {
+   {  
       fVecSizeIdx = 0;
       AssignToTensor(std::forward<First>(first), std::forward<Rest>(rest)...);
    }
@@ -252,15 +251,18 @@ public:
 
    std::unique_ptr<TMVA::Experimental::RTensor<float>>
    CreateBatch(std::vector<std::size_t> & eventIndices)
-   {
+   { 
       auto batch =
          std::make_unique<TMVA::Experimental::RTensor<float>>(std::vector<std::size_t>({fBatchSize, fNumColumns}));
 
-      RChunkLoaderFunctor<Args...> func(*batch, fVecSizes, fVecPadding, 0);
+      // RChunkLoaderFunctor<Args...> func(*batch, fVecSizes, fVecPadding, 0);
 
+      std::size_t offSet = 0;
       for (int i = 0; i < fBatchSize; i++){
          ROOT::Internal::RDF::ChangeBeginAndEndEntries(f_rdf, fCurrentRow + eventIndices[i], fCurrentRow + eventIndices[i] + 1);
-         f_rdf.Foreach(func, fCols);
+         RChunkLoaderFunctor<Args...> func(*batch, fVecSizes, fVecPadding, offSet);
+         f_rdf.Foreach<RChunkLoaderFunctor<Args...>>(func, fCols);
+         offSet += fNumColumns;
       }
 
       return batch;
@@ -284,21 +286,30 @@ public:
    std::unique_ptr<TMVA::Experimental::RTensor<float>>
    CreateFirstBatch(TMVA::Experimental::RTensor<float> & remainderTensor,
                   std::size_t remainderTensorRow, std::vector<std::size_t> eventIndices)
-   {
-      std::vector<std::size_t> idx;
-      for (std::size_t i = 0; i < (fBatchSize - remainderTensorRow); i++) {
-            idx.push_back(eventIndices[i]);
-         }
+   {  
+      auto batch =
+         std::make_unique<TMVA::Experimental::RTensor<float>>(std::vector<std::size_t>({fBatchSize, fNumColumns}));
       
-      RChunkLoaderFunctor<Args...> func(remainderTensor, fVecSizes, fVecPadding, remainderTensorRow * fNumColumns);
-
-      for (int i = 0; i < idx.size(); i++){
-         ROOT::Internal::RDF::ChangeBeginAndEndEntries(f_rdf, fCurrentRow + idx[i], fCurrentRow + idx[i] + 1);
-         f_rdf.Foreach(func, fCols);
+      std::vector<std::size_t> idx(remainderTensorRow);
+      std::iota(idx.begin(), idx.end(), 0);   
+      
+      for (std::size_t i = 0; i < remainderTensorRow; i++){
+         std::copy(remainderTensor.GetData() + (idx[i] * fNumColumns), remainderTensor.GetData() + ((idx[i] + 1) * fNumColumns),
+                   batch->GetData() + i * fNumColumns);
       }
 
-      auto batch =
-         std::make_unique<TMVA::Experimental::RTensor<float>>(remainderTensor);
+      // RChunkLoaderFunctor<Args...> func(remainderTensor, fVecSizes, fVecPadding, remainderTensorRow * fNumColumns);
+
+      std::size_t offSet = remainderTensorRow * fNumColumns;
+      for (std::size_t i = remainderTensorRow; i < fBatchSize; i++){
+         ROOT::Internal::RDF::ChangeBeginAndEndEntries(f_rdf, fCurrentRow + eventIndices[i - remainderTensorRow], fCurrentRow + eventIndices[i - remainderTensorRow] + 1);
+         RChunkLoaderFunctor<Args...> func(*batch, fVecSizes, fVecPadding, offSet);
+         f_rdf.Foreach<RChunkLoaderFunctor<Args...>>(func, fCols);
+         offSet += fNumColumns;
+      }
+
+      // auto batch =
+      //    std::make_unique<TMVA::Experimental::RTensor<float>>(remainderTensor);
 
       return batch;
    }
@@ -306,12 +317,14 @@ public:
    void SaveRemainingData(TMVA::Experimental::RTensor<float> &remainderTensor,
                           const std::size_t remainderTensorRow,
                           std::vector<std::size_t> eventIndices, const std::size_t start = 0)
-   {
+   {  
+      // RChunkLoaderFunctor<Args...> func(remainderTensor, fVecSizes, fVecPadding, 0);
+      std::size_t offSet = 0;
       for (std::size_t i = start; i < eventIndices.size(); i++) {
-         RChunkLoaderFunctor<Args...> func(remainderTensor, fVecSizes, fVecPadding, 0);
-
          ROOT::Internal::RDF::ChangeBeginAndEndEntries(f_rdf, fCurrentRow + eventIndices[i], fCurrentRow + eventIndices[i] + 1);
-         f_rdf.Foreach(func, fCols);
+         RChunkLoaderFunctor<Args...> func(remainderTensor, fVecSizes, fVecPadding, offSet);
+         f_rdf.Foreach<RChunkLoaderFunctor<Args...>>(func, fCols);
+         offSet += fNumColumns;
       }
    }
 
