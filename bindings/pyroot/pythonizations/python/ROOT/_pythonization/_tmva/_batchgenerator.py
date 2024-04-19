@@ -548,7 +548,7 @@ class TrainRBatchGenerator:
     def __next__(self):
         if not hasattr(self, '_callable'):
             self._callable = self.__call__()
-        
+
         batch = self._callable.__next__()
 
         if batch is None:
@@ -649,28 +649,32 @@ class ValidationRBatchGenerator:
 
 class TFTrainWrap(TrainRBatchGenerator, keras.utils.Sequence):
     def __init__(self, base_generator: BaseGenerator, conversion_function: Callable):
-        TrainRBatchGenerator.__init__(self, base_generator, conversion_function)
+        super.__init__(self, base_generator, conversion_function)
 
-    #TODO: implement length
     def __len__(self):
         'Denotes the number of batches per epoch'
-        return int(TrainRBatchGenerator.number_of_batches)
+        return super().number_of_batches
     
-    def __getitem__(self):
-        yield from TrainRBatchGenerator
+    def __getitem__(self, index):
+        return next(self)
+    
+    def on_epoch_end(self):
+        delattr(self, '_callable')
 
 
 class TFValidationWrap(ValidationRBatchGenerator, keras.utils.Sequence):
     def __init__(self, base_generator: BaseGenerator, conversion_function: Callable):
         ValidationRBatchGenerator.__init__(self, base_generator, conversion_function)
     
-    #TODO: implement length
     def __len__(self):
         'Denotes the number of batches per epoch'
-        return int(ValidationRBatchGenerator.number_of_batches)
+        return super().number_of_batches
     
-    def __getitem__(self):
-        yield from ValidationRBatchGenerator
+    def __getitem__(self, index):
+        return next(self)
+    
+    def on_epoch_end(self):
+        delattr(self, '_callable')
 
 
 def CreateNumPyGenerators(

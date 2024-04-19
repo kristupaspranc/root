@@ -94,9 +94,8 @@ public:
 
       fUnfilledChunk = fNumEntries % fChunkSize;
 
-      // Multiplication and division to avoid floating number error
-      fNumValidation = ceil(fChunkSize * fValidationSplit * 1000000) / 1000000;
-      
+      fNumValidation = ceil(fChunkSize * fValidationSplit);
+
       {
          std::function<UInt_t(UInt_t)> GetSeedNumber;
          GetSeedNumber = [&](UInt_t seed_number)->UInt_t{return seed_number != 0? seed_number: GetSeedNumber(fRng());};
@@ -176,18 +175,18 @@ public:
 
    std::size_t NumberOfTrainingBatches(){
       if (fDropRemainder || !fUnfilledChunk){
-         return ((fNumEntries / fChunkSize) * (fChunkSize - fNumValidation) + floor((fNumEntries % fChunkSize) * (1 - fValidationSplit) * 1000000)/1000000) / fBatchSize;
+         return ((fNumEntries / fChunkSize) * (fChunkSize - fNumValidation) + fUnfilledChunk - ceil((fNumEntries % fChunkSize) * fValidationSplit)) / fBatchSize;
       }
 
-      return ((fNumEntries / fChunkSize) * (fChunkSize - fNumValidation) + floor((fNumEntries % fChunkSize) * (1 - fValidationSplit) * 1000000)/1000000) / fBatchSize;
+      return ((fNumEntries / fChunkSize) * (fChunkSize - fNumValidation) + fUnfilledChunk - ceil((fNumEntries % fChunkSize) * (1 - fValidationSplit))) / fBatchSize + 1;
    }
 
    std::size_t NumberOfValidationBatches(){
-      if (fUnfilledChunk == ceil(fUnfilledChunk * fValidationSplit * 1000000) / 1000000 && (fDropRemainder || !fUnfilledChunk)){
-         return ((fNumEntries / fChunkSize) * fNumValidation + ceil((fNumEntries % fChunkSize) * fValidationSplit * 1000000)/1000000) / fBatchSize;
+      if ((fDropRemainder || !fUnfilledChunk) && fUnfilledChunk == ceil(fUnfilledChunk * fValidationSplit)){
+         return ((fNumEntries / fChunkSize) * fNumValidation + ceil((fNumEntries % fChunkSize) * fValidationSplit)) / fBatchSize;
       }
       
-      return ((fNumEntries / fChunkSize) * fNumValidation + ceil((fNumEntries % fChunkSize) * fValidationSplit * 1000000)/1000000) / fBatchSize + 1;
+      return ((fNumEntries / fChunkSize) * fNumValidation + ceil((fNumEntries % fChunkSize) * fValidationSplit)) / fBatchSize + 1;
    }
 
    void LoadChunks()
@@ -258,7 +257,7 @@ public:
       }
 
       // calculate the number of events used for validation
-      std::size_t num_validation = ceil(processedEvents * fValidationSplit * 1000000) / 1000000;
+      std::size_t num_validation = ceil(processedEvents * fValidationSplit);
 
       // Devide the vector into training and validation
       fTrainIndices = std::vector<std::size_t>{row_order.begin(), row_order.end() - num_validation};
