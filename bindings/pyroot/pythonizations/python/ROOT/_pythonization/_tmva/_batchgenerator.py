@@ -338,15 +338,11 @@ class BaseGenerator:
 
         data = batch.GetData()
 
-        if tuple(batch.GetShape()) != (self.batch_size,self.num_columns):
-            batch_size, num_columns = tuple(batch.GetShape())
-        else:
-            batch_size = self.batch_size
-            num_columns = self.num_columns
+        batch_size, num_columns = tuple(batch.GetShape())
 
         data.reshape((batch_size * num_columns,))
 
-        return_data = np.array(data).reshape(batch_size, num_columns)
+        return_data = np.array(data, copy=False).reshape(batch_size, num_columns)
 
         # Splice target column from the data if target is given
         if self.target_given:
@@ -382,15 +378,11 @@ class BaseGenerator:
 
         data = batch.GetData()
 
-        if tuple(batch.GetShape()) != (self.batch_size,self.num_columns):
-            batch_size, num_columns = tuple(batch.GetShape())
-        else:
-            batch_size = self.batch_size
-            num_columns = self.num_columns
+        batch_size, num_columns = tuple(batch.GetShape())
 
         data.reshape((batch_size * num_columns,))
 
-        return_data = torch.Tensor(data).reshape(batch_size, num_columns)
+        return_data = torch.as_tensor(data).view(batch_size, num_columns)
 
         # Splice target column from the data if target is given
         if self.target_given:
@@ -402,12 +394,12 @@ class BaseGenerator:
                 weights_data = return_data[:, self.weights_index]
 
                 if len(self.target_indices) == 1:
-                    return train_data, target_data.reshape(-1,1), weights_data.reshape(-1,1)
+                    return train_data, target_data.view(-1,1), weights_data.view(-1,1)
                 
-                return train_data, target_data, weights_data.reshape(-1,1)
+                return train_data, target_data, weights_data.view(-1,1)
 
             if len(self.target_indices) == 1:
-                    return train_data, target_data.reshape(-1,1)
+                    return train_data, target_data.view(-1,1)
 
             return train_data, target_data
 
@@ -427,11 +419,7 @@ class BaseGenerator:
 
         data = batch.GetData()
 
-        if tuple(batch.GetShape()) != (self.batch_size,self.num_columns):
-            batch_size, num_columns = tuple(batch.GetShape())
-        else:
-            batch_size = self.batch_size
-            num_columns = self.num_columns
+        batch_size, num_columns = tuple(batch.GetShape())
         
         data.reshape((batch_size * num_columns,))
 

@@ -96,13 +96,13 @@ public:
 
       // Multiplication and division to avoid floating number error
       fNumValidation = ceil(fChunkSize * fValidationSplit * 1000000) / 1000000;
-      
+
       {
          std::function<UInt_t(UInt_t)> GetSeedNumber;
          GetSeedNumber = [&](UInt_t seed_number)->UInt_t{return seed_number != 0? seed_number: GetSeedNumber(fRng());};
          fFixedSeed = GetSeedNumber(fRng());
       }
-
+      
       fFixedRng = TMVA::RandomGenerator<TRandom3>(fFixedSeed);
 
       fBatchLoader = std::make_unique<TMVA::Experimental::Internal::RBatchLoader<Args...>>(
