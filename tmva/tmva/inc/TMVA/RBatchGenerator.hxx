@@ -28,7 +28,7 @@ private:
    UInt_t fFixedSeed;
    TMVA::RandomGenerator<TRandom3> fFixedRng;
 
-   ROOT::RDataFrame f_rdf; 
+   ROOT::RDF::RNode & f_rdf;
 
    std::vector<std::string> fCols;
 
@@ -66,7 +66,7 @@ private:
    float fVecPadding;
 
 public:
-   RBatchGenerator(/*ROOT::RDF::RNode &rdf,*/ const std::size_t chunkSize,
+   RBatchGenerator(ROOT::RDF::RNode &rdf, const std::size_t chunkSize,
                    const std::size_t batchSize, const std::vector<std::string> &cols,
                    const std::vector<std::size_t> &vecSizes = {}, const float vecPadding = 0.0,
                    const float validationSplit = 0.0, const std::size_t maxChunks = 0, const std::size_t numColumns = 0,
@@ -80,7 +80,7 @@ public:
         fNumColumns((numColumns != 0) ? numColumns : cols.size()),
         fShuffle(shuffle),
         fDropRemainder(dropRemainder),
-        f_rdf(ROOT::RDataFrame("myTree", "temporary.root"))
+        f_rdf(rdf)
    {
       // limits the number of batches that can be contained in the batchqueue based on the chunksize
       fMaxBatches = ceil((fChunkSize / fBatchSize) * (1 - fValidationSplit));
@@ -105,7 +105,7 @@ public:
       fFixedRng = TMVA::RandomGenerator<TRandom3>(fFixedSeed);
 
       fBatchLoader = std::make_unique<TMVA::Experimental::Internal::RBatchLoader<Args...>>(
-         f_rdf, fChunkSize, fBatchSize,fCols, fNumColumns, fMaxBatches, fVecSizes, fVecPadding);
+         f_rdf, fChunkSize, fBatchSize,fCols, fNumColumns, fMaxBatches, fNumValidation, fVecSizes, fVecPadding);
 
       // Create remainders tensors
       fTrainRemainderTensor =

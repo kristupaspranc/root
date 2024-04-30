@@ -1,9 +1,11 @@
 #ifndef TMVA_RBatchLoader
 #define TMVA_RBatchLoader
 
+#include <iostream>
 #include <vector>
 #include <memory>
 #include <numeric>
+#include <cmath>
 
 // Imports for threading
 #include <queue>
@@ -117,12 +119,14 @@ public:
       fVecSizeIdx = 0;
       AssignToTensor(std::forward<First>(first), std::forward<Rest>(rest)...);
    }
+
+   std::size_t & SetOffset(){ return fOffset; }
 };
 
 template <typename... Args>
 class RBatchLoader {
 private:
-   ROOT::RDataFrame & f_rdf;
+   ROOT::RDF::RNode & f_rdf;
 
    std::size_t fChunkSize;
    std::size_t fBatchSize;
@@ -148,8 +152,8 @@ private:
    TMVA::Experimental::RTensor<float> fEmptyTensor = TMVA::Experimental::RTensor<float>({0});
 
 public:
-   RBatchLoader(ROOT::RDataFrame &rdf, const std::size_t chunkSize, const std::size_t batchSize, const std::vector<std::string> &cols,
-                const std::size_t numColumns, const std::size_t maxBatches, const std::vector<std::size_t> &vecSizes = {},
+   RBatchLoader(ROOT::RDF::RNode &rdf, const std::size_t chunkSize, const std::size_t batchSize, const std::vector<std::string> &cols,
+                const std::size_t numColumns, const std::size_t maxBatches, std::size_t numValidation, const std::vector<std::size_t> &vecSizes = {},
                 const float vecPadding = 0.0)
       : f_rdf(rdf),
         fChunkSize(chunkSize),
@@ -256,14 +260,12 @@ public:
       auto batch =
          std::make_unique<TMVA::Experimental::RTensor<float>>(std::vector<std::size_t>({fBatchSize, fNumColumns}));
 
-      // RChunkLoaderFunctor<Args...> func(*batch, fVecSizes, fVecPadding, 0);
+      RChunkLoaderFunctor<Args...> func(*batch, fVecSizes, fVecPadding, 0);
 
-      std::size_t offSet = 0;
       for (int i = 0; i < fBatchSize; i++){
          ROOT::Internal::RDF::ChangeBeginAndEndEntries(f_rdf, fCurrentRow + eventIndices[i], fCurrentRow + eventIndices[i] + 1);
-         RChunkLoaderFunctor<Args...> func(*batch, fVecSizes, fVecPadding, offSet);
          f_rdf.Foreach<RChunkLoaderFunctor<Args...>>(func, fCols);
-         offSet += fNumColumns;
+         func.SetOffset() += fNumColumns;
       }
 
       return batch;
@@ -299,30 +301,26 @@ public:
                    batch->GetData() + i * fNumColumns);
       }
 
-      // RChunkLoaderFunctor<Args...> func(remainderTensor, fVecSizes, fVecPadding, remainderTensorRow * fNumColumns);
+      RChunkLoaderFunctor<Args...> func(*batch, fVecSizes, fVecPadding, remainderTensorRow * fNumColumns);
 
-      std::size_t offSet = remainderTensorRow * fNumColumns;
       for (std::size_t i = remainderTensorRow; i < fBatchSize; i++){
          ROOT::Internal::RDF::ChangeBeginAndEndEntries(f_rdf, fCurrentRow + eventIndices[i - remainderTensorRow], fCurrentRow + eventIndices[i - remainderTensorRow] + 1);
-         RChunkLoaderFunctor<Args...> func(*batch, fVecSizes, fVecPadding, offSet);
          f_rdf.Foreach<RChunkLoaderFunctor<Args...>>(func, fCols);
-         offSet += fNumColumns;
+         func.SetOffset() += fNumColumns;
       }
 
       return batch;
    }
 
    void SaveRemainingData(TMVA::Experimental::RTensor<float> &remainderTensor,
-                          const std::size_t remainderTensorRow,
-                          std::vector<std::size_t> eventIndices, const std::size_t start = 0)
+                          std::vector<std::size_t> eventIndices, const std::size_t start = 0,
+                          const std::size_t remainderTensorRow = 0)
    {  
-      // RChunkLoaderFunctor<Args...> func(remainderTensor, fVecSizes, fVecPadding, 0);
-      std::size_t offSet = 0;
+      RChunkLoaderFunctor<Args...> func(remainderTensor, fVecSizes, fVecPadding, remainderTensorRow);
       for (std::size_t i = start; i < eventIndices.size(); i++) {
          ROOT::Internal::RDF::ChangeBeginAndEndEntries(f_rdf, fCurrentRow + eventIndices[i], fCurrentRow + eventIndices[i] + 1);
-         RChunkLoaderFunctor<Args...> func(remainderTensor, fVecSizes, fVecPadding, offSet);
          f_rdf.Foreach<RChunkLoaderFunctor<Args...>>(func, fCols);
-         offSet += fNumColumns;
+         func.SetOffset() += fNumColumns;
       }
    }
 
@@ -347,14 +345,14 @@ public:
          batches.emplace_back(CreateFirstBatch(remainderTensor, remainderTensorRow, eventIndices));
       }
       else{
-         SaveRemainingData(remainderTensor, remainderTensorRow, eventIndices);
+         SaveRemainingData(remainderTensor, eventIndices, 0, remainderTensorRow);
          fTrainBatchCondition.notify_one();
          return remainderTensorRow + eventIndices.size();
       }
 
       // Create tasks of fBatchSize until all idx are used
       std::size_t start = fBatchSize - remainderTensorRow;
-      for (; (start + fBatchSize) <= eventIndices.size(); start += fBatchSize) { //should be less than
+      for (; (start + fBatchSize) <= eventIndices.size(); start += fBatchSize) {
 
          // Grab the first fBatchSize indices from the
          std::vector<std::size_t> idx;
@@ -376,7 +374,7 @@ public:
       fTrainBatchCondition.notify_one();
 
       remainderTensorRow = eventIndices.size() - start;
-      SaveRemainingData(remainderTensor, remainderTensorRow, eventIndices, start);
+      SaveRemainingData(remainderTensor, eventIndices, start);
 
       return remainderTensorRow;
    }
@@ -393,7 +391,7 @@ public:
          batches.emplace_back(CreateFirstBatch(remainderTensor, remainderTensorRow, eventIndices));
       }
       else{
-         SaveRemainingData(remainderTensor, remainderTensorRow, eventIndices);
+         SaveRemainingData(remainderTensor, eventIndices, 0, remainderTensorRow);
          fCurrentRow += fChunkSize;
          return remainderTensorRow + eventIndices.size();
       }
@@ -417,7 +415,7 @@ public:
       }
 
       remainderTensorRow = eventIndices.size() - start;
-      SaveRemainingData(remainderTensor, remainderTensorRow, eventIndices, start);
+      SaveRemainingData(remainderTensor, eventIndices, start);
 
       fCurrentRow += fChunkSize;
 
