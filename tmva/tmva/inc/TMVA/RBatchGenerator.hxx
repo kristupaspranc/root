@@ -27,7 +27,6 @@ private:
    TMVA::RandomGenerator<TRandom3> fRng = TMVA::RandomGenerator<TRandom3>(0);
 
    std::vector<std::string> fCols;
-   std::string fFilters;
 
    std::size_t fChunkSize;
    std::size_t fMaxChunks;
@@ -69,7 +68,7 @@ private:
 
 public:
    RBatchGenerator(ROOT::RDF::RNode &rdf, const std::size_t chunkSize,
-                   const std::size_t batchSize, const std::vector<std::string> &cols, const std::string &filters = "",
+                   const std::size_t batchSize, const std::vector<std::string> &cols,
                    const std::vector<std::size_t> &vecSizes = {}, const float vecPadding = 0.0,
                    const float validationSplit = 0.0, const std::size_t maxChunks = 0, const std::size_t numColumns = 0,
                    bool shuffle = true, bool dropRemainder = true)
@@ -77,7 +76,6 @@ public:
         fChunkSize(chunkSize),
         fBatchSize(batchSize),
         fCols(cols),
-        fFilters(filters),
         fVecSizes(vecSizes),
         fVecPadding(vecPadding),
         fValidationSplit(validationSplit),
@@ -93,7 +91,7 @@ public:
       fNumEntries = f_rdf.Count().GetValue();
 
       fChunkLoader = std::make_unique<TMVA::Experimental::Internal::RChunkLoader<Args...>>(
-         f_rdf, fChunkSize, fCols, fFilters, fVecSizes, fVecPadding);
+         f_rdf, fChunkSize, fCols, fVecSizes, fVecPadding);
       fBatchLoader = std::make_unique<TMVA::Experimental::Internal::RBatchLoader>(fBatchSize, fNumColumns, fMaxBatches);
 
       // Create tensor to load the chunk into
