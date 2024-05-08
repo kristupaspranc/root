@@ -245,8 +245,6 @@ class BaseGenerator:
         # cling via cppyy) and the I/O thread.
         EnableThreadSafety()
 
-        expanded_filter = " && ".join(["(" + fltr + ")" for fltr in filters])
-
         self.noded_rdf = RDF.AsRNode(rdataframe)
 
         self.generator = TMVA.Experimental.Internal.RBatchGenerator(template)(
@@ -254,7 +252,6 @@ class BaseGenerator:
             chunk_size,
             batch_size,
             self.given_columns,
-            expanded_filter,
             max_vec_sizes_list,
             vec_padding,
             validation_split,
@@ -265,9 +262,6 @@ class BaseGenerator:
         )
 
         atexit.register(self.DeActivate)
-
-    def StartValidation(self):
-        self.generator.StartValidation()
 
     @property
     def is_active(self):
@@ -341,8 +335,6 @@ class BaseGenerator:
         data.reshape((batch_size * num_columns,))
 
         return_data = np.array(data).reshape(batch_size, num_columns)
-
-        print(return_data.shape)
 
         # Splice target column from the data if target is given
         if self.target_given:
@@ -608,8 +600,6 @@ class ValidationRBatchGenerator:
         if self.base_generator.is_active:
             self.base_generator.DeActivate()
 
-        self.base_generator.StartValidation()
-
         while True:
             batch = self.base_generator.GetValidationBatch()
 
@@ -646,8 +636,6 @@ def CreateNumPyGenerators(
             results in better randomization, but also higher memory usage.
         columns (list[str], optional):
             Columns to be returned. If not given, all columns are used.
-        filters (list[str], optional):
-            Filters to apply. If not given, no filters are applied.
         max_vec_sizes (list[int], optional):
             Size of each column that consists of vectors.
             Required when using vector based columns
@@ -728,8 +716,6 @@ def CreateTFDatasets(
             results in better randomization, but also higher memory usage.
         columns (list[str], optional):
             Columns to be returned. If not given, all columns are used.
-        filters (list[str], optional):
-            Filters to apply. If not given, no filters are applied.
         max_vec_sizes (list[int], optional):
             Size of each column that consists of vectors.
             Required when using vector based columns
@@ -854,8 +840,6 @@ def CreatePyTorchGenerators(
             results in better randomization, but also higher memory usage.
         columns (list[str], optional):
             Columns to be returned. If not given, all columns are used.
-        filters (list[str], optional):
-            Filters to apply. If not given, no filters are applied.
         max_vec_sizes (list[int], optional):
             Size of each column that consists of vectors.
             Required when using vector based columns
