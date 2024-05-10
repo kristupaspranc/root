@@ -752,6 +752,8 @@ def CreateTFDatasets(
             are loaded during the training. Before training, the validation
             generator will return no batches.
     """
+    import tensorflow as tf
+
     base_generator = BaseGenerator(
         rdataframe,
         batch_size,
@@ -807,6 +809,7 @@ def CreateTFDatasets(
     setattr(ds_train, "train_columns", train_generator.train_columns)
     setattr(ds_train, "target_column", train_generator.target_columns)
     setattr(ds_train, "weights_column", train_generator.weights_column)
+    setattr(ds_train, "number_of_batches", train_generator.number_of_batches)
 
     ds_validation = tf.data.Dataset.from_generator(
         validation_generator, output_signature=batch_signature
@@ -817,6 +820,7 @@ def CreateTFDatasets(
     setattr(ds_validation, "train_columns", train_generator.train_columns)
     setattr(ds_validation, "target_column", train_generator.target_columns)
     setattr(ds_validation, "weights_column", train_generator.weights_column)
+    setattr(ds_validation, "number_of_batches", train_generator.number_of_batches)
 
     return ds_train, ds_validation
 
