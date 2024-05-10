@@ -7,8 +7,6 @@
 #include <cmath>
 #include <mutex>
 #include <variant>
-#include <iterator>
-#include <iostream>
 
 #include "TMVA/RTensor.hxx"
 #include "ROOT/RDF/RDatasetSpec.hxx"
@@ -35,10 +33,7 @@ private:
    std::size_t fMaxChunks;
    std::size_t fBatchSize;
    std::size_t fMaxBatches;
-   std::size_t fNumColumns;
    std::size_t fNumEntries;
-   std::size_t fTrainingRemainderRow = 0;
-   std::size_t fValidationRemainderRow = 0;
    std::size_t fNumAllEntries = 0;
 
    float fValidationSplit;
@@ -52,8 +47,6 @@ private:
    bool fUseWholeFile = true;
 
    std::shared_ptr<TMVA::Experimental::RTensor<float>> fChunkTensor;
-   std::unique_ptr<TMVA::Experimental::RTensor<float>> fTrainingRemainder;
-   std::unique_ptr<TMVA::Experimental::RTensor<float>> fValidationRemainder;
    
    ROOT::RDF::RNode &f_rdf;
 
@@ -72,7 +65,7 @@ public:
    RBatchGenerator(ROOT::RDF::RNode &rdf, const std::size_t chunkSize,
                    const std::size_t batchSize, const std::vector<std::string> &cols,
                    const std::vector<std::size_t> &vecSizes = {}, const float vecPadding = 0.0,
-                   const float validationSplit = 0.0, const std::size_t maxChunks = 0, const std::size_t numColumns = 0,
+                   const float validationSplit = 0.0, const std::size_t maxChunks = 0, std::size_t numColumns = 0,
                    bool shuffle = true, bool dropRemainder = true)
       : f_rdf(rdf),
         fChunkSize(chunkSize),
@@ -82,7 +75,6 @@ public:
         fVecPadding(vecPadding),
         fValidationSplit(validationSplit),
         fMaxChunks(maxChunks),
-        fNumColumns((numColumns != 0) ? numColumns : cols.size()),
         fShuffle(shuffle),
         fDropRemainder(dropRemainder),
         fUseWholeFile(maxChunks == 0),
@@ -91,11 +83,23 @@ public:
       // limits the number of batches that can be contained in the batchqueue based on the chunksize
       fMaxBatches = ceil((fChunkSize / fBatchSize) * (1 - fValidationSplit));
 
+      {
+         std::function<UInt_t(UInt_t)> GetSeedNumber;
+         GetSeedNumber = [&](UInt_t seed_number)->UInt_t{return seed_number != 0? seed_number: GetSeedNumber(fRng());};
+         fFixedSeed = GetSeedNumber(fRng());
+      }
+      
+      if (numColumns == 0) {numColumns = cols.size();}
+
+      // Create tensor to load the chunk into
+      fChunkTensor =
+         std::make_shared<TMVA::Experimental::RTensor<float>>(std::vector<std::size_t>{fChunkSize, numColumns});
+      
       if(fNotFiltered){
          fNumEntries = f_rdf.Count().GetValue();
 
          fChunkLoaderNoFilters = std::make_unique<TMVA::Experimental::Internal::RChunkLoader<Args...>>(
-            f_rdf, fChunkSize, fCols, fVecSizes, fVecPadding);
+            f_rdf, fChunkTensor, fChunkSize, fCols, fVecSizes, fVecPadding);
       }
       else{
          auto report = f_rdf.Report();
@@ -103,25 +107,11 @@ public:
          fNumAllEntries = report.begin()->GetAll();
 
          fChunkLoaderFilters = std::make_unique<TMVA::Experimental::Internal::RChunkLoaderFilters<Args...>>(
-            f_rdf, fChunkSize, fCols, fNumEntries, fNumAllEntries, fVecSizes, fVecPadding);
-      }
-
-      {
-         std::function<UInt_t(UInt_t)> GetSeedNumber;
-         GetSeedNumber = [&](UInt_t seed_number)->UInt_t{return seed_number != 0? seed_number: GetSeedNumber(fRng());};
-         fFixedSeed = GetSeedNumber(fRng());
+            f_rdf, fChunkTensor, fChunkSize, fCols, fNumEntries, fNumAllEntries, fVecSizes, fVecPadding);
       }
       
-      fBatchLoader = std::make_unique<TMVA::Experimental::Internal::RBatchLoader>(fBatchSize, fNumColumns, fMaxBatches);
-
-      // Create tensor to load the chunk into
-      fChunkTensor =
-         std::make_shared<TMVA::Experimental::RTensor<float>>(std::vector<std::size_t>{fChunkSize, fNumColumns});
-      // Create remainders tensors
-      fTrainingRemainder =
-         std::make_unique<TMVA::Experimental::RTensor<float>>(std::vector<std::size_t>{fBatchSize - 1, fNumColumns});
-      fValidationRemainder =
-         std::make_unique<TMVA::Experimental::RTensor<float>>(std::vector<std::size_t>{fBatchSize - 1, fNumColumns});
+      fBatchLoader = std::make_unique<TMVA::Experimental::Internal::RBatchLoader>(*fChunkTensor,
+                  fBatchSize, numColumns, fMaxBatches);
    }
 
    ~RBatchGenerator() { DeActivate(); }
@@ -198,14 +188,15 @@ public:
          }
 
          // A pair that consists the proccessed, and passed events while loading the chunk
-         std::pair<std::size_t, std::size_t> report = std::get<std::shared_ptr<RChunkLoader<Args...>>>(fChunkLoaderNoFilters)->LoadChunk(fChunkTensor, currentRow);
+         std::pair<std::size_t, std::size_t> report =
+            std::get<std::shared_ptr<RChunkLoader<Args...>>>(fChunkLoaderNoFilters)->LoadChunk(currentRow);
          currentRow += report.first;
 
          CreateBatches(report.second);
       }
 
       if (!fDropRemainder){
-         fBatchLoader->LastBatches(*fTrainingRemainder, fTrainingRemainderRow, *fValidationRemainder, fValidationRemainderRow);
+         fBatchLoader->LastBatches();
       }
 
       fBatchLoader->DeActivate();
@@ -225,26 +216,20 @@ public:
          }
 
          // A pair that consists the proccessed, and passed events while loading the chunk
-         std::pair<std::size_t, std::size_t> report = std::get<std::shared_ptr<RChunkLoaderFilters<Args...>>>(fChunkLoaderFilters)->LoadChunk(fChunkTensor, currentRow);
+         std::pair<std::size_t, std::size_t> report = std::get<std::shared_ptr<RChunkLoaderFilters<Args...>>>(fChunkLoaderFilters)->LoadChunk(currentRow);
 
          currentRow += report.first;
          processedEvents += report.second;
 
-         std::cout << "Printing chunk in BatchGenerator\n"; 
-         for (std::size_t i = 0; i < fChunkSize * fNumColumns; i++){
-            std::copy(fChunkTensor->GetData() + i, fChunkTensor->GetData() + i + 1, std::ostream_iterator<int>(std::cout, ", "));
-         }
-         
-         std::cout << "Bout to create batch\n";
          CreateBatches(report.second);
       }
 
       if (currentChunk < fMaxChunks || fUseWholeFile){
-         CreateBatches(std::get<std::shared_ptr<RChunkLoaderFilters<Args...>>>(fChunkLoaderFilters)->LastChunk(fChunkTensor));
+         CreateBatches(std::get<std::shared_ptr<RChunkLoaderFilters<Args...>>>(fChunkLoaderFilters)->LastChunk());
       }
 
       if (!fDropRemainder){
-         fBatchLoader->LastBatches(*fTrainingRemainder, fTrainingRemainderRow, *fValidationRemainder, fValidationRemainderRow);
+         fBatchLoader->LastBatches();
       }
 
       fBatchLoader->DeActivate();
@@ -256,11 +241,11 @@ public:
    {
       std::pair<std::vector<std::size_t>, std::vector<std::size_t>> indices = createIndices(processedEvents);
 
-      fTrainingRemainderRow = fBatchLoader->CreateTrainingBatches(*fChunkTensor, *fTrainingRemainder, fTrainingRemainderRow, indices.first);
-      fValidationRemainderRow = fBatchLoader->CreateValidationBatches(*fChunkTensor, *fValidationRemainder, fValidationRemainderRow, indices.second);
+      fBatchLoader->CreateTrainingBatches(indices.first);
+      fBatchLoader->CreateValidationBatches(indices.second);
    }
 
-   /// \brief split the events of the current chunk into training and validation events
+   /// \brief split the events of the current chunk into training and validation events, shuffle if needed
    /// \param events
    std::pair<std::vector<std::size_t>, std::vector<std::size_t>>
    createIndices(std::size_t events)
@@ -278,12 +263,11 @@ public:
 
       // Devide the vector into training and validation and return
       std::vector<std::size_t> trainingIndices = std::vector<std::size_t>({row_order.begin(), row_order.end() - num_validation});
+      std::vector<std::size_t> validationIndices = std::vector<std::size_t>({row_order.end() - num_validation, row_order.end()});
 
       if (fShuffle) {
          std::shuffle(trainingIndices.begin(), trainingIndices.end(), fRng);
       }
-
-      std::vector<std::size_t> validationIndices = std::vector<std::size_t>({row_order.end() - num_validation, row_order.end()});
 
       return std::make_pair(trainingIndices, validationIndices);
    }
